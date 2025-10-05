@@ -69,6 +69,10 @@ public:
   virtual void restartBridge() {
     // no op by default
   };
+  virtual void gpsGetStatus(char * reply) {}
+  virtual void gpsStart() {}
+  virtual void gpsStop() {}
+  virtual void gpsSyncTime() {}
 };
 
 class CommonCLI {
