@@ -2,6 +2,7 @@
 
 #include "Mesh.h"
 #include <helpers/IdentityStore.h>
+#include <target.h>
 
 #if defined(WITH_RS232_BRIDGE) || defined(WITH_ESPNOW_BRIDGE)
 #define WITH_BRIDGE
@@ -85,6 +86,9 @@ class CommonCLI {
   mesh::RTCClock* getRTCClock() { return _rtc; }
   void savePrefs();
   void loadPrefsInt(FILESYSTEM* _fs, const char* filename);
+
+  const char* sensorGetCustomVar(const char* key);
+  bool sensorSetCustomVar(const char* key, const char* value);
 
 public:
   CommonCLI(mesh::MainBoard& board, mesh::RTCClock& rtc, NodePrefs* prefs, CommonCLICallbacks* callbacks)
