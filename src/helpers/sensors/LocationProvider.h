@@ -22,4 +22,5 @@ public:
     virtual void stop() = 0;
     virtual void loop() = 0;
     virtual bool isEnabled() = 0;
+    virtual float getAccuracy() = 0;  // Horizontal accuracy in meters
 };

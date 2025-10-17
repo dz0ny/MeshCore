@@ -46,6 +46,13 @@ struct NodePrefs { // persisted to file
   uint8_t gps_enabled;
   uint32_t gps_interval; // in seconds
   uint8_t advert_loc_policy;
+  // GPS location advertising settings
+  uint8_t gps_loc_advert_enabled;       // 0=off, 1=on
+  uint8_t gps_loc_distance_threshold;   // meters (1-20)
+  uint8_t gps_loc_frequency;            // seconds/10 (30s-300s stored as 3-30)
+  uint8_t gps_loc_guaranteed_interval;  // 0=1min, 1=5min, 2=15min
+  uint8_t gps_loc_accuracy_threshold;   // meters (3-20, GPS accuracy must be better than this)
+  double last_advert_lat, last_advert_lon; // Track last advertised position
 };
 
 class CommonCLICallbacks {

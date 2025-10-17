@@ -142,24 +142,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
 
   if (payload[0] == REQ_TYPE_GET_STATUS) {  // guests can also access this now
     RepeaterStats stats;
-    stats.batt_milli_volts = board.getBattMilliVolts();
-    stats.curr_tx_queue_len = _mgr->getOutboundCount(0xFFFFFFFF);
-    stats.noise_floor = (int16_t)_radio->getNoiseFloor();
-    stats.last_rssi = (int16_t)radio_driver.getLastRSSI();
-    stats.n_packets_recv = radio_driver.getPacketsRecv();
-    stats.n_packets_sent = radio_driver.getPacketsSent();
-    stats.total_air_time_secs = getTotalAirTime() / 1000;
-    stats.total_up_time_secs = uptime_millis / 1000;
-    stats.n_sent_flood = getNumSentFlood();
-    stats.n_sent_direct = getNumSentDirect();
-    stats.n_recv_flood = getNumRecvFlood();
-    stats.n_recv_direct = getNumRecvDirect();
-    stats.err_events = _err_flags;
-    stats.last_snr = (int16_t)(radio_driver.getLastSNR() * 4);
-    stats.n_direct_dups = ((SimpleMeshTables *)getTables())->getNumDirectDups();
-    stats.n_flood_dups = ((SimpleMeshTables *)getTables())->getNumFloodDups();
-    stats.total_rx_air_time_secs = getReceiveAirTime() / 1000;
-
+    getRepeaterStats(stats);
     memcpy(&reply_data[4], &stats, sizeof(stats));
 
     return 4 + sizeof(stats); //  reply_len
@@ -300,6 +283,40 @@ File MyMesh::openAppend(const char *fname) {
   return _fs->open(fname, "a");
 #else
   return _fs->open(fname, "a", true);
+#endif
+}
+
+void MyMesh::getRepeaterStats(RepeaterStats& stats) {
+  stats.batt_milli_volts    = board.getBattMilliVolts();
+  stats.curr_tx_queue_len   = _mgr->getOutboundCount(0xFFFFFFFF);
+  stats.noise_floor         = (int16_t)_radio->getNoiseFloor();
+  stats.last_rssi           = (int16_t)radio_driver.getLastRSSI();
+  stats.n_packets_recv      = radio_driver.getPacketsRecv();
+  stats.n_packets_sent      = radio_driver.getPacketsSent();
+  stats.total_air_time_secs = getTotalAirTime() / 1000;
+  stats.total_up_time_secs  = _ms->getMillis() / 1000;
+  stats.n_sent_flood        = getNumSentFlood();
+  stats.n_sent_direct       = getNumSentDirect();
+  stats.n_recv_flood        = getNumRecvFlood();
+  stats.n_recv_direct       = getNumRecvDirect();
+  stats.err_events          = _err_flags;
+  stats.last_snr            = (int16_t)(radio_driver.getLastSNR() * 4);
+  stats.n_direct_dups       = ((SimpleMeshTables *)getTables())->getNumDirectDups();
+  stats.n_flood_dups        = ((SimpleMeshTables *)getTables())->getNumFloodDups();
+  stats.total_rx_air_time_secs = getReceiveAirTime() / 1000;
+}
+
+uint16_t MyMesh::getActiveNeighboursCount() const {
+#if MAX_NEIGHBOURS
+  uint16_t count = 0;
+  for (int i = 0; i < MAX_NEIGHBOURS; i++) {
+    if (neighbours[i].heard_timestamp > 0) {
+      count++;
+    }
+  }
+  return count;
+#else
+  return 0;
 #endif
 }
 
@@ -620,7 +637,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.cr = LORA_CR;
   _prefs.tx_power_dbm = LORA_TX_POWER;
   _prefs.advert_interval = 1;        // default to 2 minutes for NEW installs
-  _prefs.flood_advert_interval = 12; // 12 hours
+  _prefs.flood_advert_interval = 1; // 1 hour
   _prefs.flood_max = 64;
   _prefs.interference_threshold = 0; // disabled
 

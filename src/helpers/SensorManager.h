@@ -9,12 +9,18 @@
 
 #define TELEM_CHANNEL_SELF   1   // LPP data channel for 'self' device
 
+// Callback type for location advertisement triggers
+typedef void (*LocationAdvertCallback)(double lat, double lon);
+
 class SensorManager {
 public:
   double node_lat, node_lon;  // modify these, if you want to affect Advert location
   double node_altitude;       // altitude in meters
 
   SensorManager() { node_lat = 0; node_lon = 0; node_altitude = 0; }
+
+  // Set callback for location advertisement triggers
+  virtual void setLocationAdvertCallback(LocationAdvertCallback callback) { }
   virtual bool begin() { return false; }
   virtual bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) { return false; }
   virtual void loop() { }

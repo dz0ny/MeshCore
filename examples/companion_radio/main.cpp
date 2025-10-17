@@ -216,6 +216,21 @@ void setup() {
 
   sensors.begin();
 
+#if ENV_INCLUDE_GPS == 1
+  // Initialize location advertiser with config pointers from NodePrefs
+  NodePrefs* prefs = the_mesh.getNodePrefs();
+  sensors.initLocationAdvertiser(
+    &prefs->gps_loc_distance_threshold,
+    &prefs->gps_loc_frequency,
+    &prefs->gps_loc_guaranteed_interval,
+    &prefs->gps_loc_accuracy_threshold,
+    &prefs->gps_loc_advert_enabled
+  );
+
+  // Set the callback for location advertisement triggers
+  sensors.setLocationAdvertCallback(&MyMesh::onLocationAdvertTrigger);
+#endif
+
 #ifdef DISPLAY_CLASS
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved
 #endif

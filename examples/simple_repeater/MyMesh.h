@@ -191,6 +191,12 @@ public:
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply);
   void loop();
 
+  // Populate current repeater stats (battery, queue, RF + counters)
+  void getRepeaterStats(RepeaterStats& out_stats);
+
+  // Count currently active neighbours heard
+  uint16_t getActiveNeighboursCount() const;
+
 #if defined(WITH_BRIDGE)
   void setBridgeState(bool enable) override {
     if (enable == bridge.isRunning()) return;

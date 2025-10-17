@@ -375,6 +375,13 @@ void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packe
       _ui->notify(UIEventType::contactMessage);
     }
   }
+
+  // Store ALL messages in RAM, but only persist those with "S:" prefix to disk
+  if (should_display) {
+    bool is_signed = (txt_type == TXT_TYPE_SIGNED_PLAIN);
+    bool is_persistent = (text[0] == 'S' && text[1] == ':');
+    _msg_store.addMessage(sender_timestamp, from.id.pub_key, from.name, path_len, is_signed, text, is_persistent);
+  }
 #endif
 }
 
@@ -653,7 +660,7 @@ void MyMesh::onSendTimeout() {}
 
 MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store, AbstractUITask* ui)
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
-      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _ui(ui) {
+      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _msg_store(&store), _ui(ui) {
   _iter_started = false;
   _cli_rescue = false;
   offline_queue_len = 0;
@@ -674,6 +681,20 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.cr = LORA_CR;
   _prefs.tx_power_dbm = LORA_TX_POWER;
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
+
+  // GPS location advertising defaults (enabled by default for companion_radio)
+  _prefs.gps_loc_advert_enabled = 1;       // enabled by default
+  _prefs.gps_loc_distance_threshold = 10;  // 10 meters
+  _prefs.gps_loc_frequency = 6;            // 60 seconds (stored as /10)
+  _prefs.gps_loc_guaranteed_interval = 1;  // 5 minutes
+  _prefs.gps_loc_accuracy_threshold = 20;  // 20 meters accuracy required
+  _prefs.last_advert_lat = 0.0;
+  _prefs.last_advert_lon = 0.0;
+
+  // UI defaults
+  _prefs.buzzer_key_press = 1;             // enabled by default
+
+  instance = this;  // Set static instance for callback
 }
 
 void MyMesh::begin(bool has_display) {
@@ -734,6 +755,9 @@ void MyMesh::begin(bool has_display) {
   _store->loadContacts(this);
   addChannel("Public", PUBLIC_GROUP_PSK); // pre-configure Andy's public channel
   _store->loadChannels(this);
+
+  // Initialize message store
+  _msg_store.begin();
 
   radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
   radio_set_tx_power(_prefs.tx_power_dbm);
@@ -1711,6 +1735,13 @@ void MyMesh::loop() {
     dirty_contacts_expiry = 0;
   }
 
+  // Save messages if dirty (done periodically by MessageStore's poll, but also check here)
+  static unsigned long last_msg_save = 0;
+  if (_msg_store.isDirty() && millis() - last_msg_save > 10000) { // Save every 10 seconds if dirty
+    _msg_store.save();
+    last_msg_save = millis();
+  }
+
 #ifdef DISPLAY_CLASS
   if (_ui) _ui->setHasConnection(_serial->isConnected());
 #endif
@@ -1729,4 +1760,32 @@ bool MyMesh::advert() {
   } else {
     return false;
   }
+}
+
+// Static instance for callback
+MyMesh* MyMesh::instance = nullptr;
+
+// Static callback that forwards to instance method
+void MyMesh::onLocationAdvertTrigger(double lat, double lon) {
+  if (instance) {
+    instance->sendLocationAdvertisement(lat, lon);
+  }
+}
+
+// Send location advertisement (flood only)
+void MyMesh::sendLocationAdvertisement(double lat, double lon) {
+  MESH_DEBUG_PRINTLN("Location advert triggered: lat=%f, lon=%f", lat, lon);
+
+  mesh::Packet* pkt = createSelfAdvert(_prefs.node_name, lat, lon);
+  if (pkt) {
+    // Send only flood advertisement
+    sendFlood(pkt);
+  } else {
+    MESH_DEBUG_PRINTLN("ERROR: unable to create location advertisement packet!");
+  }
+
+  // Update stored last advertised position
+  _prefs.last_advert_lat = lat;
+  _prefs.last_advert_lon = lon;
+  savePrefs();  // Persist the last advertised position
 }

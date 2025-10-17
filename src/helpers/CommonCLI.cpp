@@ -69,7 +69,14 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read((uint8_t *)&_prefs->gps_enabled, sizeof(_prefs->gps_enabled));                       // 156
     file.read((uint8_t *)&_prefs->gps_interval, sizeof(_prefs->gps_interval));                     // 157
     file.read((uint8_t *)&_prefs->advert_loc_policy, sizeof (_prefs->advert_loc_policy));          // 161
-    // 162
+    file.read((uint8_t *)&_prefs->gps_loc_advert_enabled, sizeof(_prefs->gps_loc_advert_enabled)); // 162
+    file.read((uint8_t *)&_prefs->gps_loc_distance_threshold, sizeof(_prefs->gps_loc_distance_threshold)); // 163
+    file.read((uint8_t *)&_prefs->gps_loc_frequency, sizeof(_prefs->gps_loc_frequency));           // 164
+    file.read((uint8_t *)&_prefs->gps_loc_guaranteed_interval, sizeof(_prefs->gps_loc_guaranteed_interval)); // 165
+    file.read((uint8_t *)&_prefs->gps_loc_accuracy_threshold, sizeof(_prefs->gps_loc_accuracy_threshold)); // 166
+    file.read((uint8_t *)&_prefs->last_advert_lat, sizeof(_prefs->last_advert_lat));               // 167
+    file.read((uint8_t *)&_prefs->last_advert_lon, sizeof(_prefs->last_advert_lon));               // 175
+    // 183
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -92,6 +99,11 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
 
     _prefs->gps_enabled = constrain(_prefs->gps_enabled, 0, 1);
     _prefs->advert_loc_policy = constrain(_prefs->advert_loc_policy, 0, 2);
+    _prefs->gps_loc_advert_enabled = constrain(_prefs->gps_loc_advert_enabled, 0, 1);
+    _prefs->gps_loc_distance_threshold = constrain(_prefs->gps_loc_distance_threshold, 1, 20);
+    _prefs->gps_loc_frequency = constrain(_prefs->gps_loc_frequency, 3, 30); // 30s-300s stored as /10
+    _prefs->gps_loc_guaranteed_interval = constrain(_prefs->gps_loc_guaranteed_interval, 0, 2);
+    _prefs->gps_loc_accuracy_threshold = constrain(_prefs->gps_loc_accuracy_threshold, 3, 30); // 3-30m accuracy
 
     file.close();
   }
@@ -146,13 +158,20 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *)&_prefs->gps_enabled, sizeof(_prefs->gps_enabled));                       // 156
     file.write((uint8_t *)&_prefs->gps_interval, sizeof(_prefs->gps_interval));                     // 157
     file.write((uint8_t *)&_prefs->advert_loc_policy, sizeof(_prefs->advert_loc_policy));           // 161
-    // 162
+    file.write((uint8_t *)&_prefs->gps_loc_advert_enabled, sizeof(_prefs->gps_loc_advert_enabled)); // 162
+    file.write((uint8_t *)&_prefs->gps_loc_distance_threshold, sizeof(_prefs->gps_loc_distance_threshold)); // 163
+    file.write((uint8_t *)&_prefs->gps_loc_frequency, sizeof(_prefs->gps_loc_frequency));           // 164
+    file.write((uint8_t *)&_prefs->gps_loc_guaranteed_interval, sizeof(_prefs->gps_loc_guaranteed_interval)); // 165
+    file.write((uint8_t *)&_prefs->gps_loc_accuracy_threshold, sizeof(_prefs->gps_loc_accuracy_threshold)); // 166
+    file.write((uint8_t *)&_prefs->last_advert_lat, sizeof(_prefs->last_advert_lat));               // 167
+    file.write((uint8_t *)&_prefs->last_advert_lon, sizeof(_prefs->last_advert_lon));               // 175
+    // 183
 
     file.close();
   }
 }
 
-#define MIN_LOCAL_ADVERT_INTERVAL   60
+#define MIN_LOCAL_ADVERT_INTERVAL   5
 
 void CommonCLI::savePrefs() {
   if (_prefs->advert_interval * 2 < MIN_LOCAL_ADVERT_INTERVAL) {
@@ -359,8 +378,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         strcpy(reply, "OK");
       } else if (memcmp(config, "flood.advert.interval ", 22) == 0) {
         int hours = _atoi(&config[22]);
-        if ((hours > 0 && hours < 3) || (hours > 48)) {
-          strcpy(reply, "Error: interval range is 3-48 hours");
+        if ((hours > 0 && hours < 1) || (hours > 48)) {
+          strcpy(reply, "Error: interval range is 1-48 hours");
         } else {
           _prefs->flood_advert_interval = (uint8_t)(hours);
           _callbacks->updateFloodAdvertTimer();
@@ -632,6 +651,64 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       } else {
         strcpy(reply, "error");
       }
+    } else if (memcmp(command, "gps locadv on", 13) == 0) {
+      _prefs->gps_loc_advert_enabled = 1;
+      savePrefs();
+      strcpy(reply, "ok");
+    } else if (memcmp(command, "gps locadv off", 14) == 0) {
+      _prefs->gps_loc_advert_enabled = 0;
+      savePrefs();
+      strcpy(reply, "ok");
+    } else if (memcmp(command, "gps locadv dist ", 16) == 0) {
+      uint8_t dist = atoi(&command[16]);
+      if (dist >= 1 && dist <= 20) {
+        _prefs->gps_loc_distance_threshold = dist;
+        savePrefs();
+        strcpy(reply, "ok");
+      } else {
+        strcpy(reply, "error: range 1-20m");
+      }
+    } else if (memcmp(command, "gps locadv freq ", 16) == 0) {
+      uint16_t freq_secs = atoi(&command[16]);
+      if (freq_secs >= 30 && freq_secs <= 300) {
+        _prefs->gps_loc_frequency = freq_secs / 10;
+        savePrefs();
+        sprintf(reply, "ok - %ds", _prefs->gps_loc_frequency * 10);
+      } else {
+        strcpy(reply, "error: range 30-300s");
+      }
+    } else if (memcmp(command, "gps locadv interval ", 20) == 0) {
+      uint16_t mins = atoi(&command[20]);
+      if (mins == 1) {
+        _prefs->gps_loc_guaranteed_interval = 0;
+        savePrefs();
+        strcpy(reply, "ok - 1min");
+      } else if (mins == 5) {
+        _prefs->gps_loc_guaranteed_interval = 1;
+        savePrefs();
+        strcpy(reply, "ok - 5min");
+      } else if (mins == 15) {
+        _prefs->gps_loc_guaranteed_interval = 2;
+        savePrefs();
+        strcpy(reply, "ok - 15min");
+      } else {
+        strcpy(reply, "error: use 1, 5, or 15");
+      }
+    } else if (memcmp(command, "gps locadv", 10) == 0) {
+      const char* enabled_str = _prefs->gps_loc_advert_enabled ? "on" : "off";
+      uint16_t freq_secs = _prefs->gps_loc_frequency * 10;
+      const char* interval_str;
+      switch (_prefs->gps_loc_guaranteed_interval) {
+        case 0: interval_str = "1min"; break;
+        case 1: interval_str = "5min"; break;
+        case 2: interval_str = "15min"; break;
+        default: interval_str = "?"; break;
+      }
+      sprintf(reply, "> %s, %dm dist, %ds freq, %s int",
+              enabled_str,
+              _prefs->gps_loc_distance_threshold,
+              freq_secs,
+              interval_str);
     } else if (memcmp(command, "gps", 3) == 0) {
       LocationProvider * l = _sensors->getLocationProvider();
       if (l != NULL) {

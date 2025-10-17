@@ -142,12 +142,15 @@ private:
   float pending_bw;
   uint8_t pending_sf;
   uint8_t pending_cr;
+  static SensorMesh* instance;  // For static callback
 
   uint8_t handleLoginReq(const mesh::Identity& sender, const uint8_t* secret, uint32_t sender_timestamp, const uint8_t* data);
   uint8_t handleRequest(uint8_t perms, uint32_t sender_timestamp, uint8_t req_type, uint8_t* payload, size_t payload_len);
   mesh::Packet* createSelfAdvert();
 
   void sendAlert(const ClientInfo* c, Trigger* t);
+  void sendLocationAdvertisement(double lat, double lon);
+  static void onLocationAdvertTrigger(double lat, double lon);
 
   #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {

@@ -25,6 +25,7 @@
 
 #include "DataStore.h"
 #include "NodePrefs.h"
+#include "MessageStore.h"
 
 #include <RTClib.h>
 #include <helpers/ArduinoHelpers.h>
@@ -87,6 +88,9 @@ class MyMesh : public BaseChatMesh, public DataStoreHost {
 public:
   MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store, AbstractUITask* ui=NULL);
 
+  // Get the message store for UI access
+  MessageStore* getMessageStore() { return &_msg_store; }
+
   void begin(bool has_display);
   void startInterface(BaseSerialInterface &serial);
 
@@ -100,6 +104,14 @@ public:
   void enterCLIRescue();
 
   int  getRecentlyHeard(AdvertPath dest[], int max_num);
+
+  // Public save methods for preferences, channels, and contacts
+  void savePrefs() { _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon); }
+  void saveChannels() { _store->saveChannels(this); }
+  void saveContacts() { _store->saveContacts(this); }
+
+  // Location advertising callback (must be public for external access)
+  static void onLocationAdvertTrigger(double lat, double lon);
 
 protected:
   float getAirtimeBudgetFactor() const override;
@@ -164,13 +176,10 @@ private:
   void checkCLIRescueCmd();
   void checkSerialInterface();
 
-  // helpers, short-cuts
-  void savePrefs() { _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon); }
-  void saveChannels() { _store->saveChannels(this); }
-  void saveContacts() { _store->saveContacts(this); }
-
-private:
+  void sendLocationAdvertisement(double lat, double lon);
+  static MyMesh* instance;  // For static callback
   DataStore* _store;
+  MessageStore _msg_store;
   NodePrefs _prefs;
   uint32_t pending_login;
   uint32_t pending_status;

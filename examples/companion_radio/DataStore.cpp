@@ -225,6 +225,15 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     file.read((uint8_t *)&_prefs.multi_acks, sizeof(_prefs.multi_acks));                   // 77
     file.read(pad, 2);                                                                     // 78
     file.read((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));                         // 80
+    file.read((uint8_t *)&_prefs.gps_loc_advert_enabled, sizeof(_prefs.gps_loc_advert_enabled)); // 84
+    file.read((uint8_t *)&_prefs.gps_loc_distance_threshold, sizeof(_prefs.gps_loc_distance_threshold)); // 85
+    file.read((uint8_t *)&_prefs.gps_loc_frequency, sizeof(_prefs.gps_loc_frequency));     // 86
+    file.read((uint8_t *)&_prefs.gps_loc_guaranteed_interval, sizeof(_prefs.gps_loc_guaranteed_interval)); // 87
+    file.read((uint8_t *)&_prefs.gps_loc_accuracy_threshold, sizeof(_prefs.gps_loc_accuracy_threshold)); // 88
+    file.read((uint8_t *)&_prefs.last_advert_lat, sizeof(_prefs.last_advert_lat));         // 89
+    file.read((uint8_t *)&_prefs.last_advert_lon, sizeof(_prefs.last_advert_lon));         // 97
+    file.read((uint8_t *)&_prefs.buzzer_key_press, sizeof(_prefs.buzzer_key_press));       // 105
+    // 106
 
     file.close();
   }
@@ -256,6 +265,15 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.multi_acks, sizeof(_prefs.multi_acks));                   // 77
     file.write(pad, 2);                                                                     // 78
     file.write((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));                         // 80
+    file.write((uint8_t *)&_prefs.gps_loc_advert_enabled, sizeof(_prefs.gps_loc_advert_enabled)); // 84
+    file.write((uint8_t *)&_prefs.gps_loc_distance_threshold, sizeof(_prefs.gps_loc_distance_threshold)); // 85
+    file.write((uint8_t *)&_prefs.gps_loc_frequency, sizeof(_prefs.gps_loc_frequency));     // 86
+    file.write((uint8_t *)&_prefs.gps_loc_guaranteed_interval, sizeof(_prefs.gps_loc_guaranteed_interval)); // 87
+    file.write((uint8_t *)&_prefs.gps_loc_accuracy_threshold, sizeof(_prefs.gps_loc_accuracy_threshold)); // 88
+    file.write((uint8_t *)&_prefs.last_advert_lat, sizeof(_prefs.last_advert_lat));         // 89
+    file.write((uint8_t *)&_prefs.last_advert_lon, sizeof(_prefs.last_advert_lon));         // 97
+    file.write((uint8_t *)&_prefs.buzzer_key_press, sizeof(_prefs.buzzer_key_press));       // 105
+    // 106
 
     file.close();
   }

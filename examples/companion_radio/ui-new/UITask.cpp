@@ -2,6 +2,13 @@
 #include <helpers/TxtDataHelpers.h>
 #include "../MyMesh.h"
 #include "target.h"
+#include <math.h>
+
+extern MyMesh the_mesh;
+
+#ifdef MESHTASTIC_INCLUDE_INKHUD
+#include <helpers/ui/BatteryIconApplet.h>
+#endif
 
 #ifndef AUTO_OFF_MILLIS
   #define AUTO_OFF_MILLIS     15000   // 15 seconds
@@ -49,18 +56,25 @@ public:
   }
 
   int render(DisplayDriver& display) override {
+    // Calculate vertical center with margins
+    const int SCREEN_TOP_MARGIN = 5;
+    const int SCREEN_BOTTOM_MARGIN = 5;
+    int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+    int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+
     // meshcore logo
     display.setColor(DisplayDriver::BLUE);
     int logoWidth = 128;
-    display.drawXbm((display.width() - logoWidth) / 2, 3, meshcore_logo, logoWidth, 13);
+    int logoHeight = 13;
+    display.drawXbm((display.width() - logoWidth) / 2, centerY - 25, meshcore_logo, logoWidth, logoHeight);
 
     // version info
     display.setColor(DisplayDriver::LIGHT);
     display.setTextSize(2);
-    display.drawTextCentered(display.width()/2, 22, _version_info);
+    display.drawTextCentered(display.width()/2, centerY - 5, _version_info);
 
     display.setTextSize(1);
-    display.drawTextCentered(display.width()/2, 42, FIRMWARE_BUILD_DATE);
+    display.drawTextCentered(display.width()/2, centerY + 15, FIRMWARE_BUILD_DATE);
 
     return 1000;
   }
@@ -73,15 +87,13 @@ public:
 };
 
 class HomeScreen : public UIScreen {
+public:
   enum HomePage {
     FIRST,
-    RECENT,
-    RADIO,
-    BLUETOOTH,
+    SETTINGS,
+    MESSAGES,
+    NEARBY,
     ADVERT,
-#if ENV_INCLUDE_GPS == 1
-    GPS,
-#endif
 #if UI_SENSORS_PAGE == 1
     SENSORS,
 #endif
@@ -89,6 +101,7 @@ class HomeScreen : public UIScreen {
     Count    // keep as last
   };
 
+private:
   UITask* _task;
   mesh::RTCClock* _rtc;
   SensorManager* _sensors;
@@ -97,8 +110,32 @@ class HomeScreen : public UIScreen {
   bool _shutdown_init;
   AdvertPath recent[UI_RECENT_LIST_SIZE];
 
+  // Screen layout constants
+  static constexpr int SCREEN_TOP_MARGIN = 20;  // Header height (18px) + separator + spacing
+  static constexpr int SCREEN_BOTTOM_MARGIN = 18;
+
 
   void renderBatteryIndicator(DisplayDriver& display, uint16_t batteryMilliVolts) {
+#ifdef MESHTASTIC_INCLUDE_INKHUD
+    // Use the new InkHUD BatteryIconApplet for ink/e-paper displays
+    static InkHUD::BatteryIconApplet* batteryIcon = nullptr;
+
+    if (batteryIcon == nullptr) {
+      // Create battery icon positioned at top
+      batteryIcon = new InkHUD::BatteryIconApplet(
+        &display,
+        display.width() - 40 - 5,  // x: 5 pixels from right edge
+        0,                          // y: at top with screen name
+        40,                         // width
+        20                          // height
+      );
+    }
+
+    // Update and render
+    batteryIcon->updateBatteryMilliVolts(batteryMilliVolts);
+    batteryIcon->render();
+#else
+    // Original battery rendering for non-InkHUD displays
     // Convert millivolts to percentage
     const int minMilliVolts = 3000; // Minimum voltage (e.g., 3.0V)
     const int maxMilliVolts = 4200; // Maximum voltage (e.g., 4.2V)
@@ -106,11 +143,11 @@ class HomeScreen : public UIScreen {
     if (batteryPercentage < 0) batteryPercentage = 0; // Clamp to 0%
     if (batteryPercentage > 100) batteryPercentage = 100; // Clamp to 100%
 
-    // battery icon
-    int iconWidth = 24;
-    int iconHeight = 10;
+    // battery icon - positioned at top
+    int iconWidth = 32;
+    int iconHeight = 14;
     int iconX = display.width() - iconWidth - 5; // Position the icon near the top-right corner
-    int iconY = 0;
+    int iconY = 0;  // At top with screen name
     display.setColor(DisplayDriver::GREEN);
 
     // battery outline
@@ -122,6 +159,7 @@ class HomeScreen : public UIScreen {
     // fill the battery based on the percentage
     int fillWidth = (batteryPercentage * (iconWidth - 4)) / 100;
     display.fillRect(iconX + 2, iconY + 2, fillWidth, iconHeight - 4);
+#endif
   }
 
   CayenneLPP sensors_lpp;
@@ -153,8 +191,10 @@ class HomeScreen : public UIScreen {
 
 public:
   HomeScreen(UITask* task, mesh::RTCClock* rtc, SensorManager* sensors, NodePrefs* node_prefs)
-     : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0), 
+     : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0),
        _shutdown_init(false), sensors_lpp(200) {  }
+
+  void setPage(HomePage page) { _page = page; }
 
   void poll() override {
     if (_shutdown_init && !_task->isButtonPressed()) {  // must wait for USR button to be released
@@ -164,7 +204,17 @@ public:
 
   int render(DisplayDriver& display) override {
     char tmp[80];
-    // node name
+
+    // Screen name (centered at the very top) - use small font (size 0)
+    const char* screen_name = "";
+  
+
+    // Draw screen name centered at the very top with smallest font
+    display.setTextSize(0);  // Use smallest font (7pt for e-ink, 5px for OLED)
+    display.setColor(DisplayDriver::YELLOW);
+    display.drawTextCentered(display.width() / 2, 0, screen_name);
+
+    // node name - back to normal size
     display.setTextSize(1);
     display.setColor(DisplayDriver::GREEN);
     char filtered_name[sizeof(_node_prefs->node_name)];
@@ -186,109 +236,152 @@ public:
       }
     }
 
+    // Draw dotted line separator between header and content
+    int separator_y = 18;
+    display.setColor(DisplayDriver::LIGHT);
+    for (int dx = 0; dx < display.width(); dx += 3) {
+      display.fillRect(dx, separator_y, 1, 1);
+    }
+
     if (_page == HomePage::FIRST) {
-      display.setColor(DisplayDriver::YELLOW);
-      display.setTextSize(2);
-      sprintf(tmp, "MSG: %d", _task->getMsgCount());
-      display.drawTextCentered(display.width() / 2, 20, tmp);
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
 
       if (_task->hasConnection()) {
         display.setColor(DisplayDriver::GREEN);
         display.setTextSize(1);
-        display.drawTextCentered(display.width() / 2, 43, "< Connected >");
+        display.drawTextCentered(display.width() / 2, centerY, "< Connected >");
       } else if (the_mesh.getBLEPin() != 0) { // BT pin
         display.setColor(DisplayDriver::RED);
         display.setTextSize(2);
         sprintf(tmp, "Pin:%d", the_mesh.getBLEPin());
-        display.drawTextCentered(display.width() / 2, 43, tmp);
+        display.drawTextCentered(display.width() / 2, centerY, tmp);
       }
-    } else if (_page == HomePage::RECENT) {
+    } else if (_page == HomePage::SETTINGS) {
+      // Settings page - show big "Settings" text similar to Messages
+      display.setColor(DisplayDriver::GREEN);
+      display.setTextSize(2);
+
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+
+      // Show "Settings" text
+      display.setTextSize(2);
+      display.drawTextCentered(display.width() / 2, centerY - 10, "Settings");
+
+      display.setTextSize(1);
+      display.setColor(DisplayDriver::LIGHT);
+      display.drawTextCentered(display.width() / 2, centerY + 10, "Press to view");
+    } else if (_page == HomePage::MESSAGES) {
+      // Messages page - show message count and preview
+      display.setColor(DisplayDriver::GREEN);
+      display.setTextSize(1);
+
+      uint8_t msg_count = _task->getMessagesScreen()->getUnreadCount();
+      uint8_t total_count = the_mesh.getMessageStore()->getCount();
+
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+
+      if (total_count == 0) {
+        // No messages
+        display.setTextSize(2);
+        display.drawTextCentered(display.width() / 2, centerY - 10, "No Messages");
+        display.setTextSize(1);
+        display.drawTextCentered(display.width() / 2, centerY + 10, "Press to view");
+      } else {
+        // Show message count
+        display.setTextSize(2);
+        char buf[32];
+        if (msg_count > 0) {
+          snprintf(buf, sizeof(buf), "%d unread", msg_count);
+          display.drawTextCentered(display.width() / 2, centerY - 20, buf);
+        }
+        snprintf(buf, sizeof(buf), "%d total", total_count);
+        display.setTextSize(1);
+        display.drawTextCentered(display.width() / 2, centerY, buf);
+
+        // Show newest message preview
+        const StoredMessage* newest = the_mesh.getMessageStore()->getMessage(total_count - 1);
+        if (newest) {
+          display.setColor(DisplayDriver::YELLOW);
+          display.drawTextCentered(display.width() / 2, centerY + 15, newest->sender_name);
+
+          display.setColor(DisplayDriver::LIGHT);
+          char preview[25];
+          int preview_len = (strlen(newest->msg) > 20) ? 20 : strlen(newest->msg);
+          strncpy(preview, newest->msg, preview_len);
+          preview[preview_len] = '\0';
+          if (strlen(newest->msg) > 20) {
+            strcat(preview, "...");
+          }
+          display.drawTextCentered(display.width() / 2, centerY + 25, preview);
+        }
+
+        display.setTextSize(1);
+        display.setColor(DisplayDriver::LIGHT);
+        display.drawTextCentered(display.width() / 2, centerY + 40, "Press to view");
+      }
+    } else if (_page == HomePage::NEARBY) {
+      // Nearby page - show preview similar to Messages/Settings
       the_mesh.getRecentlyHeard(recent, UI_RECENT_LIST_SIZE);
       display.setColor(DisplayDriver::GREEN);
-      int y = 20;
-      for (int i = 0; i < UI_RECENT_LIST_SIZE; i++, y += 11) {
-        auto a = &recent[i];
-        if (a->name[0] == 0) continue;  // empty slot
-        int secs = _rtc->getCurrentTime() - a->recv_timestamp;
-        if (secs < 60) {
-          sprintf(tmp, "%ds", secs);
-        } else if (secs < 60*60) {
-          sprintf(tmp, "%dm", secs / 60);
-        } else {
-          sprintf(tmp, "%dh", secs / (60*60));
-        }
-        
-        int timestamp_width = display.getTextWidth(tmp);
-        int max_name_width = display.width() - timestamp_width - 1;
-        
-        char filtered_recent_name[sizeof(a->name)];
-        display.translateUTF8ToBlocks(filtered_recent_name, a->name, sizeof(filtered_recent_name));
-        display.drawTextEllipsized(0, y, max_name_width, filtered_recent_name);
-        display.setCursor(display.width() - timestamp_width - 1, y);
-        display.print(tmp);
+
+      // Count nearby nodes
+      int nearby_count = 0;
+      for (int i = 0; i < UI_RECENT_LIST_SIZE; i++) {
+        if (recent[i].name[0] != 0) nearby_count++;
       }
-    } else if (_page == HomePage::RADIO) {
-      display.setColor(DisplayDriver::YELLOW);
-      display.setTextSize(1);
-      // freq / sf
-      display.setCursor(0, 20);
-      sprintf(tmp, "FQ: %06.3f   SF: %d", _node_prefs->freq, _node_prefs->sf);
-      display.print(tmp);
 
-      display.setCursor(0, 31);
-      sprintf(tmp, "BW: %03.2f     CR: %d", _node_prefs->bw, _node_prefs->cr);
-      display.print(tmp);
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
 
-      // tx power,  noise floor
-      display.setCursor(0, 42);
-      sprintf(tmp, "TX: %ddBm", _node_prefs->tx_power_dbm);
-      display.print(tmp);
-      display.setCursor(0, 53);
-      sprintf(tmp, "Noise floor: %d", radio_driver.getNoiseFloor());
-      display.print(tmp);
-    } else if (_page == HomePage::BLUETOOTH) {
-      display.setColor(DisplayDriver::GREEN);
-      display.drawXbm((display.width() - 32) / 2, 18,
-          _task->isSerialEnabled() ? bluetooth_on : bluetooth_off,
-          32, 32);
-      display.setTextSize(1);
-      display.drawTextCentered(display.width() / 2, 64 - 11, "toggle: " PRESS_LABEL);
+      if (nearby_count == 0) {
+        // No nearby nodes
+        display.setTextSize(2);
+        display.drawTextCentered(display.width() / 2, centerY - 10, "No Nodes");
+        display.setTextSize(1);
+        display.setColor(DisplayDriver::LIGHT);
+        display.drawTextCentered(display.width() / 2, centerY + 10, "Press to view");
+      } else {
+        // Show count
+        display.setTextSize(2);
+        char count_buf[32];
+        snprintf(count_buf, sizeof(count_buf), "%d nearby", nearby_count);
+        display.drawTextCentered(display.width() / 2, centerY - 10, count_buf);
+
+        // Show newest node name
+        if (recent[0].name[0] != 0) {
+          display.setColor(DisplayDriver::YELLOW);
+          display.setTextSize(1);
+          char filtered_name[sizeof(recent[0].name)];
+          display.translateUTF8ToBlocks(filtered_name, recent[0].name, sizeof(filtered_name));
+          display.drawTextCentered(display.width() / 2, centerY + 5, filtered_name);
+        }
+
+        display.setTextSize(1);
+        display.setColor(DisplayDriver::LIGHT);
+        display.drawTextCentered(display.width() / 2, centerY + 20, "Press to view");
+      }
     } else if (_page == HomePage::ADVERT) {
       display.setColor(DisplayDriver::GREEN);
-      display.drawXbm((display.width() - 32) / 2, 18, advert_icon, 32, 32);
-      display.drawTextCentered(display.width() / 2, 64 - 11, "advert: " PRESS_LABEL);
-#if ENV_INCLUDE_GPS == 1
-    } else if (_page == HomePage::GPS) {
-      LocationProvider* nmea = sensors.getLocationProvider();
-      int y = 18;
-      display.drawTextLeftAlign(0, y, _task->getGPSState() ? "gps on" : "gps off");
-      if (nmea == NULL) {
-        y = y + 12;
-        display.drawTextLeftAlign(0, y, "Can't access GPS");
-      } else {
-        char buf[50];
-        strcpy(buf, nmea->isValid()?"fix":"no fix");
-        display.drawTextRightAlign(display.width()-1, y, buf);
-        y = y + 12;
-        display.drawTextLeftAlign(0, y, "sat");
-        sprintf(buf, "%d", nmea->satellitesCount());
-        display.drawTextRightAlign(display.width()-1, y, buf);
-        y = y + 12;
-        display.drawTextLeftAlign(0, y, "pos");
-        sprintf(buf, "%.4f %.4f", 
-          nmea->getLatitude()/1000000., nmea->getLongitude()/1000000.);
-        display.drawTextRightAlign(display.width()-1, y, buf);
-        y = y + 12;
-        display.drawTextLeftAlign(0, y, "alt");
-        sprintf(buf, "%.2f", nmea->getAltitude()/1000.);
-        display.drawTextRightAlign(display.width()-1, y, buf);
-        y = y + 12;
-      }
-#endif
+      int text_height = display.getTextHeight("A");
+      // Total content: 32px icon + 4px gap + text height
+      int total_height = 32 + 4 + text_height;
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + ((available_height - total_height) / 2);
+      display.drawXbm((display.width() - 32) / 2, centerY, advert_icon, 32, 32);
+      display.drawTextCentered(display.width() / 2, centerY + 32 + 4 + text_height, "advert: " PRESS_LABEL);
 #if UI_SENSORS_PAGE == 1
     } else if (_page == HomePage::SENSORS) {
-      int y = 18;
+      int line_height = display.getTextHeight("A");
+      int line_spacing = line_height + 2;  // font height + small gap
       refresh_sensors();
+      // Center the sensor list vertically
+      int num_lines = (sensors_scroll ? UI_RECENT_LIST_SIZE : sensors_nb);
+      if (num_lines > UI_RECENT_LIST_SIZE) num_lines = UI_RECENT_LIST_SIZE;
+      int total_height = num_lines * line_spacing;
+      int y = (display.height() - total_height) / 2 + (line_height / 2);
       char buf[30];
       char name[30];
       LPPReader r(sensors_lpp.getBuffer(), sensors_lpp.getSize());
@@ -309,11 +402,58 @@ public:
         display.setCursor(0, y);
         float v;
         switch (type) {
-          case LPP_GPS: // GPS
+          case LPP_GPS: { // GPS
             float lat, lon, alt;
             r.readGPS(lat, lon, alt);
-            strcpy(name, "gps"); sprintf(buf, "%.4f %.4f", lat, lon);
+
+            // Check if GPS data should be displayed based on accuracy
+            LocationProvider* gps = _sensors->getLocationProvider();
+            bool show_gps = false;
+
+            if (gps != NULL && gps->isValid()) {
+              float accuracy = gps->getAccuracy();
+              // Only show GPS telemetry if accuracy is better than 20 meters
+              show_gps = (accuracy > 0 && accuracy <= 20.0f);
+            }
+
+            if (!show_gps) {
+              // Skip GPS data display - accuracy too poor or no GPS
+              continue;
+            }
+
+            // Display latitude
+            strcpy(name, "latitude"); sprintf(buf, "%.5f", lat);
+            display.setCursor(0, y);
+            display.print(name);
+            display.setCursor(display.width()-display.getTextWidth(buf)-1, y);
+            display.print(buf);
+            y = y + line_spacing;
+            i++; // Count this as an additional line
+
+            // Check if we have room for more lines
+            if (i >= (sensors_scroll?UI_RECENT_LIST_SIZE:sensors_nb)) break;
+
+            // Display longitude
+            strcpy(name, "longitude"); sprintf(buf, "%.5f", lon);
+            display.setCursor(0, y);
+            display.print(name);
+            display.setCursor(display.width()-display.getTextWidth(buf)-1, y);
+            display.print(buf);
+            y = y + line_spacing;
+            i++; // Count this as an additional line
+
+            // Check if we have room for more lines and altitude is valid
+            if (i >= (sensors_scroll?UI_RECENT_LIST_SIZE:sensors_nb)) break;
+
+            // Display altitude only if valid (non-zero or has meaningful value)
+            if (alt != 0.0f) {
+              strcpy(name, "altitude"); sprintf(buf, "%.0fm", alt);
+            } else {
+              // Skip altitude display if it's zero/invalid
+              continue;
+            }
             break;
+          }
           case LPP_VOLTAGE:
             r.readVoltage(v);
             strcpy(name, "voltage"); sprintf(buf, "%6.2f", v);
@@ -352,7 +492,7 @@ public:
           display.width()-display.getTextWidth(buf)-1, y
         );
         display.print(buf);
-        y = y + 12;
+        y = y + line_spacing;
       }
       if (sensors_scroll) sensors_scroll_offset = (sensors_scroll_offset+1)%sensors_nb;
       else sensors_scroll_offset = 0;
@@ -360,34 +500,49 @@ public:
     } else if (_page == HomePage::SHUTDOWN) {
       display.setColor(DisplayDriver::GREEN);
       display.setTextSize(1);
+      int text_height = display.getTextHeight("A");
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+
       if (_shutdown_init) {
-        display.drawTextCentered(display.width() / 2, 34, "hibernating...");
+        int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+        display.drawTextCentered(display.width() / 2, centerY, "hibernating...");
       } else {
-        display.drawXbm((display.width() - 32) / 2, 18, power_icon, 32, 32);
-        display.drawTextCentered(display.width() / 2, 64 - 11, "hibernate:" PRESS_LABEL);
+        // Total content: 32px icon + 4px gap + text height
+        int total_height = 32 + 4 + text_height;
+        int centerY = SCREEN_TOP_MARGIN + ((available_height - total_height) / 2);
+        display.drawXbm((display.width() - 32) / 2, centerY, power_icon, 32, 32);
+        display.drawTextCentered(display.width() / 2, centerY + 32 + 4 + text_height, "hibernate:" PRESS_LABEL);
       }
     }
     return 5000;   // next render after 5000 ms
   }
 
   bool handleInput(char c) override {
+    // Handle SETTINGS page - press to enter settings screen
+    if (_page == HomePage::SETTINGS) {
+      if (c == KEY_ENTER || c == KEY_SELECT) {
+        _task->gotoSettingsScreen();
+        return true;
+      }
+    }
+
+    // Handle page navigation
     if (c == KEY_LEFT || c == KEY_PREV) {
       _page = (_page + HomePage::Count - 1) % HomePage::Count;
       return true;
     }
     if (c == KEY_NEXT || c == KEY_RIGHT) {
       _page = (_page + 1) % HomePage::Count;
-      if (_page == HomePage::RECENT) {
-        _task->showAlert("Recent adverts", 800);
-      }
       return true;
     }
-    if (c == KEY_ENTER && _page == HomePage::BLUETOOTH) {
-      if (_task->isSerialEnabled()) {  // toggle Bluetooth on/off
-        _task->disableSerial();
-      } else {
-        _task->enableSerial();
-      }
+    if ((c == KEY_ENTER || c == KEY_SELECT) && _page == HomePage::MESSAGES) {
+      // Switch to full messages screen
+      _task->gotoMessagesScreen();
+      return true;
+    }
+    if ((c == KEY_ENTER || c == KEY_SELECT) && _page == HomePage::NEARBY) {
+      // Switch to full nearby screen
+      _task->gotoNearbyScreen();
       return true;
     }
     if (c == KEY_ENTER && _page == HomePage::ADVERT) {
@@ -399,12 +554,6 @@ public:
       }
       return true;
     }
-#if ENV_INCLUDE_GPS == 1
-    if (c == KEY_ENTER && _page == HomePage::GPS) {
-      _task->toggleGPS();
-      return true;
-    }
-#endif
 #if UI_SENSORS_PAGE == 1
     if (c == KEY_ENTER && _page == HomePage::SENSORS) {
       _task->toggleGPS();
@@ -451,8 +600,11 @@ public:
 
   int render(DisplayDriver& display) override {
     char tmp[16];
-    display.setCursor(0, 0);
     display.setTextSize(1);
+    int line_spacing = display.getTextHeight("A") + 2;  // font height + small gap
+    int y = 0;
+
+    display.setCursor(0, y);
     display.setColor(DisplayDriver::GREEN);
     sprintf(tmp, "Unread: %d", num_unread);
     display.print(tmp);
@@ -467,18 +619,21 @@ public:
     } else {
       sprintf(tmp, "%dh", secs / (60*60));
     }
-    display.setCursor(display.width() - display.getTextWidth(tmp) - 2, 0);
+    display.setCursor(display.width() - display.getTextWidth(tmp) - 2, y);
     display.print(tmp);
 
-    display.drawRect(0, 11, display.width(), 1);  // horiz line
+    y = y + line_spacing;
+    display.drawRect(0, y, display.width(), 1);  // horiz line
 
-    display.setCursor(0, 14);
+    y = y + 3;  // small gap after line
+    display.setCursor(0, y);
     display.setColor(DisplayDriver::YELLOW);
     char filtered_origin[sizeof(p->origin)];
     display.translateUTF8ToBlocks(filtered_origin, p->origin, sizeof(filtered_origin));
     display.print(filtered_origin);
 
-    display.setCursor(0, 25);
+    y = y + line_spacing;
+    display.setCursor(0, y);
     display.setColor(DisplayDriver::LIGHT);
     char filtered_msg[sizeof(p->msg)];
     display.translateUTF8ToBlocks(filtered_msg, p->msg, sizeof(filtered_msg));
@@ -521,6 +676,13 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 #if defined(PIN_USER_BTN)
   user_btn.begin();
 #endif
+#if UI_HAS_JOYSTICK
+  joystick_up.begin();
+  joystick_down.begin();
+  joystick_left.begin();
+  joystick_right.begin();
+  back_btn.begin();
+#endif
 #if defined(PIN_USER_BTN_ANA)
   analog_btn.begin();
 #endif
@@ -544,6 +706,11 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   splash = new SplashScreen(this);
   home = new HomeScreen(this, &rtc_clock, sensors, node_prefs);
   msg_preview = new MsgPreviewScreen(this, &rtc_clock);
+  messages = new MessagesScreen(this, the_mesh.getMessageStore());
+  nearby = new NearbyScreen(this, &rtc_clock, sensors);
+  debug_keys = new DebugKeyScreen(this);
+  settings = new SettingsScreen(this, sensors, node_prefs);
+  radio_stats = new RadioStatsScreen(this, sensors, node_prefs);
   setCurrScreen(splash);
 }
 
@@ -582,6 +749,11 @@ switch(t){
 }
 
 
+void UITask::gotoMessagesHomePage() {
+  ((HomeScreen*)home)->setPage(HomeScreen::MESSAGES);
+  setCurrScreen(home);
+}
+
 void UITask::msgRead(int msgcount) {
   _msgcount = msgcount;
   if (msgcount == 0) {
@@ -592,8 +764,8 @@ void UITask::msgRead(int msgcount) {
 void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) {
   _msgcount = msgcount;
 
-  ((MsgPreviewScreen *) msg_preview)->addPreview(path_len, from_name, text);
-  setCurrScreen(msg_preview);
+  // Jump to Messages home page instead of showing msg_preview
+  gotoMessagesHomePage();
 
   if (_display != NULL) {
     if (!_display->isOn()) _display->turnOn();
@@ -668,34 +840,77 @@ void UITask::loop() {
   int ev = user_btn.check();
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_ENTER);
+#ifdef PIN_BUZZER
+    // Play chirp only if display was already on (c != 0 means event not consumed by wake)
+    if (c != 0 && _node_prefs->buzzer_key_press) buzzer.playChirp();
+#endif
   } else if (ev == BUTTON_EVENT_LONG_PRESS) {
     c = handleLongPress(KEY_ENTER);  // REVISIT: could be mapped to different key code
+  }
+  ev = joystick_up.check();
+  if (ev == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_UP);
+#ifdef PIN_BUZZER
+    if (c != 0 && _node_prefs->buzzer_key_press) buzzer.playChirp();
+#endif
+  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
+    c = handleLongPress(KEY_UP);
+  }
+  ev = joystick_down.check();
+  if (ev == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_DOWN);
+#ifdef PIN_BUZZER
+    if (c != 0 && _node_prefs->buzzer_key_press) buzzer.playChirp();
+#endif
+  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
+    c = handleLongPress(KEY_DOWN);
   }
   ev = joystick_left.check();
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_LEFT);
+#ifdef PIN_BUZZER
+    if (c != 0 && _node_prefs->buzzer_key_press) buzzer.playChirp();
+#endif
   } else if (ev == BUTTON_EVENT_LONG_PRESS) {
     c = handleLongPress(KEY_LEFT);
   }
   ev = joystick_right.check();
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_RIGHT);
+#ifdef PIN_BUZZER
+    if (c != 0 && _node_prefs->buzzer_key_press) buzzer.playChirp();
+#endif
   } else if (ev == BUTTON_EVENT_LONG_PRESS) {
     c = handleLongPress(KEY_RIGHT);
   }
   ev = back_btn.check();
-  if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
+  if (ev == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_CANCEL);
+#ifdef PIN_BUZZER
+    if (c != 0 && _node_prefs->buzzer_key_press) buzzer.playChirp();
+#endif
+  } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
     c = handleTripleClick(KEY_SELECT);
   }
 #elif defined(PIN_USER_BTN)
   int ev = user_btn.check();
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_NEXT);
+#ifdef PIN_BUZZER
+    // Play chirp only if display was already on (c != 0 means event not consumed by wake)
+    if (c != 0 && _node_prefs->buzzer_key_press) buzzer.playChirp();
+#endif
   } else if (ev == BUTTON_EVENT_LONG_PRESS) {
     c = handleLongPress(KEY_ENTER);
   } else if (ev == BUTTON_EVENT_DOUBLE_CLICK) {
+#ifdef PIN_BUZZER
+    if (_node_prefs->buzzer_key_press) buzzer.playComboTune();
+#endif
     c = handleDoubleClick(KEY_PREV);
   } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
+#ifdef PIN_BUZZER
+    if (_node_prefs->buzzer_key_press) buzzer.playComboTune();
+#endif
     c = handleTripleClick(KEY_SELECT);
   }
 #endif
@@ -703,11 +918,20 @@ void UITask::loop() {
   ev = analog_btn.check();
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_NEXT);
+#ifdef PIN_BUZZER
+    if (c != 0 && _node_prefs->buzzer_key_press) buzzer.playChirp();
+#endif
   } else if (ev == BUTTON_EVENT_LONG_PRESS) {
     c = handleLongPress(KEY_ENTER);
   } else if (ev == BUTTON_EVENT_DOUBLE_CLICK) {
+#ifdef PIN_BUZZER
+    if (_node_prefs->buzzer_key_press) buzzer.playComboTune();
+#endif
     c = handleDoubleClick(KEY_PREV);
   } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
+#ifdef PIN_BUZZER
+    if (_node_prefs->buzzer_key_press) buzzer.playComboTune();
+#endif
     c = handleTripleClick(KEY_SELECT);
   }
 #endif
@@ -775,8 +999,12 @@ void UITask::loop() {
         _display->startFrame();
         _display->setTextSize(2);
         _display->setColor(DisplayDriver::RED);
-        _display->drawTextCentered(_display->width() / 2, 20, "Low Battery.");
-        _display->drawTextCentered(_display->width() / 2, 40, "Shutting Down!");
+        const int SCREEN_TOP_MARGIN = 10;
+        const int SCREEN_BOTTOM_MARGIN = 10;
+        int available_height = _display->height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+        int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+        _display->drawTextCentered(_display->width() / 2, centerY - 10, "Low Battery.");
+        _display->drawTextCentered(_display->width() / 2, centerY + 10, "Shutting Down!");
         _display->endFrame();
       }
       #endif
@@ -793,6 +1021,9 @@ char UITask::checkDisplayOn(char c) {
   if (_display != NULL) {
     if (!_display->isOn()) {
       _display->turnOn();   // turn display on and consume event
+#ifdef PIN_BUZZER
+      buzzer.playBoop();  // Play distinct sound when waking display
+#endif
       c = 0;
     }
     _auto_off = millis() + AUTO_OFF_MILLIS;   // extend auto-off timer
@@ -806,6 +1037,7 @@ char UITask::handleLongPress(char c) {
     the_mesh.enterCLIRescue();
     c = 0;   // consume event
   }
+  // Global GPS toggle disabled - use settings menu instead
   return c;
 }
 
@@ -818,7 +1050,7 @@ char UITask::handleDoubleClick(char c) {
 char UITask::handleTripleClick(char c) {
   MESH_DEBUG_PRINTLN("UITask: triple click triggered");
   checkDisplayOn(c);
-  toggleBuzzer();
+  // Buzzer toggle moved to settings menu
   c = 0;
   return c;
 }

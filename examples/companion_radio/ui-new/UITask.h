@@ -17,6 +17,11 @@
 
 #include "../AbstractUITask.h"
 #include "../NodePrefs.h"
+#include "MessagesScreen.h"
+#include "DebugKeyScreen.h"
+#include "SettingsScreen.h"
+#include "RadioStatsScreen.h"
+#include "NearbyScreen.h"
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
@@ -43,6 +48,11 @@ class UITask : public AbstractUITask {
   UIScreen* splash;
   UIScreen* home;
   UIScreen* msg_preview;
+  UIScreen* messages;
+  UIScreen* nearby;
+  UIScreen* debug_keys;
+  UIScreen* settings;
+  UIScreen* radio_stats;
   UIScreen* curr;
 
   void userLedHandler();
@@ -65,12 +75,39 @@ public:
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
 
   void gotoHomeScreen() { setCurrScreen(home); }
+  void gotoMessagesHomePage();  // Jump to Messages page on home screen
+  void gotoMessagesScreen() {
+    ((MessagesScreen*)messages)->reset();
+    setCurrScreen(messages);
+  }
+  void gotoNearbyScreen() {
+    ((NearbyScreen*)nearby)->reset();
+    setCurrScreen(nearby);
+  }
+  void gotoSettingsScreen() {
+    ((SettingsScreen*)settings)->reset();
+    setCurrScreen(settings);
+  }
+  void gotoDebugKeyScreen() {
+    setCurrScreen(debug_keys);
+  }
+  void gotoRadioStatsScreen() {
+    setCurrScreen(radio_stats);
+  }
+  MessagesScreen* getMessagesScreen() { return (MessagesScreen*)messages; }
   void showAlert(const char* text, int duration_millis);
   int  getMsgCount() const { return _msgcount; }
   bool hasDisplay() const { return _display != NULL; }
   bool isButtonPressed() const;
 
   void toggleBuzzer();
+  bool getBuzzerState() {
+#ifdef PIN_BUZZER
+    return !buzzer.isQuiet();
+#else
+    return false;
+#endif
+  }
   bool getGPSState();
   void toggleGPS();
 

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pio run -e wio-tracker-l1)",
+      "Bash(/Users/dz0ny/.local/bin/platformio run -e wio-tracker-l1)",
+      "Read(//Users/dz0ny/.platformio/**)",
+      "Bash(xargs ls)",
+      "Read(//Users/dz0ny/**)",
+      "Bash(~/.platformio/penv/bin/pio run -e wio-tracker-l1)",
+      "Bash(~/.platformio/penv/bin/pio run -e WioTrackerL1Eink_companion_radio_ble)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(platformio run -e esp32s3-heltec-tracker-test)",
+      "Bash(platformio run -e heltec_tracker_v2_companion_radio_ble)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
