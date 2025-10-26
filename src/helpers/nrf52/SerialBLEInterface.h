@@ -1,10 +1,20 @@
 #pragma once
 
 #include "../BaseSerialInterface.h"
+#include "../BLEServiceDefinitions.h"
 #include <bluefruit.h>
 
 #ifndef BLE_TX_POWER
 #define BLE_TX_POWER 4
+#endif
+
+#ifndef BLE_ADVERT
+#define BLE_ADVERT 0  // Default: BLE discovery disabled
+#endif
+
+#if BLE_ADVERT
+// Forward declaration
+class BLEDiscoveryManager;
 #endif
 
 class SerialBLEInterface : public BaseSerialInterface {
@@ -27,12 +37,46 @@ class SerialBLEInterface : public BaseSerialInterface {
   static void onDisconnect(uint16_t connection_handle, uint8_t reason);
   static void onSecured(uint16_t connection_handle);
 
+  // MeshCore BLE Discovery (server-side members)
+  BLEService meshCoreService;
+  BLECharacteristic pubKeyChar;
+  BLECharacteristic deviceInfoChar;
+  BLECharacteristic signatureChar;
+
+  // MeshCore BLE Client (for auto-discovery connections)
+  BLEClientService meshCoreClientService;
+  BLEClientCharacteristic pubKeyClientChar;
+  BLEClientCharacteristic deviceInfoClientChar;
+  BLEClientCharacteristic signatureClientChar;
+
 public:
-  SerialBLEInterface() {
+  // Connection state tracking (public so callbacks can access)
+  bool _client_connected;
+  uint16_t _client_conn_handle;
+
+private:
+
+public:
+  #if BLE_ADVERT
+  BLEDiscoveryManager* discovery_manager;
+  #endif
+  SerialBLEInterface() : meshCoreService(MESHCORE_SERVICE_UUID),
+                          pubKeyChar(MESHCORE_PUBKEY_UUID),
+                          deviceInfoChar(MESHCORE_DEVICE_INFO_UUID),
+                          signatureChar(MESHCORE_SIGNATURE_UUID),
+                          meshCoreClientService(MESHCORE_SERVICE_UUID),
+                          pubKeyClientChar(MESHCORE_PUBKEY_UUID),
+                          deviceInfoClientChar(MESHCORE_DEVICE_INFO_UUID),
+                          signatureClientChar(MESHCORE_SIGNATURE_UUID) {
     _isEnabled = false;
     _isDeviceConnected = false;
     _last_write = 0;
     send_queue_len = 0;
+    #if BLE_ADVERT
+    discovery_manager = nullptr;
+    #endif
+    _client_connected = false;
+    _client_conn_handle = BLE_CONN_HANDLE_INVALID;
   }
 
   void startAdv();
@@ -49,6 +93,15 @@ public:
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[]) override;
+
+  // MeshCore BLE Discovery methods
+  void createMeshCoreService();
+  void updateManufacturerData(const BLEManufacturerData& data);
+  void setMeshCoreCharacteristics(const uint8_t* pubkey, const BLEDeviceInfo* device_info, const uint8_t* signature);
+  #if BLE_ADVERT
+  void startScanning(BLEDiscoveryManager* discovery_mgr);
+  bool connectAndReadDevice(const uint8_t* mac_addr, uint8_t device_hash);
+  #endif
 };
 
 #if BLE_DEBUG_LOGGING && ARDUINO

@@ -1,10 +1,14 @@
 #pragma once
 
 #include "../BaseSerialInterface.h"
+#include "../BLEServiceDefinitions.h"
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+
+// Forward declaration
+class BLEDiscoveryManager;
 
 class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLEServerCallbacks, BLECharacteristicCallbacks {
   BLEServer *pServer;
@@ -17,6 +21,13 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   uint32_t _pin_code;
   unsigned long _last_write;
   unsigned long adv_restart_time;
+
+  // MeshCore discovery service
+  BLEService* pMeshCoreService;
+  BLECharacteristic* pPubKeyChar;
+  BLECharacteristic* pDeviceInfoChar;
+  BLECharacteristic* pSignatureChar;
+  BLEScan* pBLEScan;
 
   struct Frame {
     uint8_t len;
@@ -59,6 +70,11 @@ public:
     _last_write = 0;
     last_conn_id = 0;
     send_queue_len = recv_queue_len = 0;
+    pMeshCoreService = NULL;
+    pPubKeyChar = NULL;
+    pDeviceInfoChar = NULL;
+    pSignatureChar = NULL;
+    pBLEScan = NULL;
   }
 
   void begin(const char* device_name, uint32_t pin_code);
@@ -73,6 +89,12 @@ public:
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[]) override;
+
+  // MeshCore BLE discovery methods
+  void createMeshCoreService();
+  void updateManufacturerData(const BLEManufacturerData& data);
+  void setMeshCoreCharacteristics(const uint8_t* pubkey, const BLEDeviceInfo* device_info, const uint8_t* signature);
+  void startScanning(BLEDiscoveryManager* discovery_mgr);
 };
 
 #if BLE_DEBUG_LOGGING && ARDUINO

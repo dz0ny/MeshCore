@@ -2,6 +2,13 @@
 
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
+#include <Crypto.h> // For Ed25519 signatures
+
+#if defined(BLE_PIN_CODE) && defined(ESP32)
+#include <helpers/esp32/SerialBLEInterface.h>
+#elif defined(BLE_PIN_CODE) && defined(NRF52_PLATFORM)
+#include <helpers/nrf52/SerialBLEInterface.h>
+#endif
 
 #define CMD_APP_START                 1
 #define CMD_SEND_TXT_MSG              2
@@ -669,6 +676,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   next_ack_idx = 0;
   sign_data = NULL;
   dirty_contacts_expiry = 0;
+  last_ble_update = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
 
   // defaults
@@ -776,6 +784,11 @@ uint32_t MyMesh::getBLEPin() {
 void MyMesh::startInterface(BaseSerialInterface &serial) {
   _serial = &serial;
   serial.enable();
+
+#if defined(BLE_PIN_CODE)
+  // Initialize BLE discovery for companion radio (advertising + scanning)
+  initBLEDiscovery();
+#endif
 }
 
 void MyMesh::handleCmdFrame(size_t len) {
@@ -1742,6 +1755,23 @@ void MyMesh::loop() {
     last_msg_save = millis();
   }
 
+#if defined(BLE_PIN_CODE)
+  // Update BLE advertisement periodically (every 30 seconds)
+  if (millis() - last_ble_update > 30000) {
+    updateBLEAdvertisement();
+    last_ble_update = millis();
+
+    #ifdef MESH_DEBUG
+    MESH_DEBUG_PRINTLN("BLE: Periodic advertisement refresh (every 30s)");
+    #endif
+  }
+
+  // Process BLE discovery manager (cleanup stale neighbors, etc.)
+  #if BLE_ADVERT
+  _ble_discovery.loop();
+  #endif
+#endif
+
 #ifdef DISPLAY_CLASS
   if (_ui) _ui->setHasConnection(_serial->isConnected());
 #endif
@@ -1788,4 +1818,139 @@ void MyMesh::sendLocationAdvertisement(double lat, double lon) {
   _prefs.last_advert_lat = lat;
   _prefs.last_advert_lon = lon;
   savePrefs();  // Persist the last advertised position
+
+  // Also update BLE advertisement when location changes
+  updateBLEAdvertisement();
 }
+
+// BLE Discovery Methods (Companion Radio: Advertising + Scanning)
+#if defined(BLE_PIN_CODE)
+
+void MyMesh::initBLEDiscovery() {
+  #if BLE_ADVERT == 0
+  MESH_DEBUG_PRINTLN("BLE discovery DISABLED (BLE_ADVERT=0)");
+  return;  // Skip all BLE initialization
+  #endif
+
+  MESH_DEBUG_PRINTLN("Initializing BLE discovery (advertising + scanning)");
+
+  // Cast serial interface to SerialBLEInterface to access BLE-specific methods
+  #if defined(ESP32) || defined(NRF52_PLATFORM)
+  SerialBLEInterface* ble_serial = static_cast<SerialBLEInterface*>(_serial);
+  #else
+  MESH_DEBUG_PRINTLN("BLE not supported on this platform");
+  return;
+  #endif
+
+  // Create MeshCore GATT service with characteristics
+  ble_serial->createMeshCoreService();
+
+  // Build device info for GATT characteristics
+  BLEDeviceInfo device_info;
+  device_info.device_type = ADV_TYPE_CHAT;
+  device_info.flags = 0;
+  device_info.timestamp = getRTCClock()->getCurrentTime();
+  strncpy(device_info.name, _prefs.node_name, sizeof(device_info.name) - 1);
+  device_info.name[sizeof(device_info.name) - 1] = '\0';
+
+  // Generate Ed25519 signature for authentication
+  // Message to sign: pubkey || timestamp || device_info
+  uint8_t msg_to_sign[32 + 4 + sizeof(BLEDeviceInfo)];
+  memcpy(msg_to_sign, self_id.pub_key, 32);
+  memcpy(msg_to_sign + 32, &device_info.timestamp, 4);
+  memcpy(msg_to_sign + 36, &device_info, sizeof(BLEDeviceInfo));
+
+  uint8_t signature[64];
+  self_id.sign(signature, msg_to_sign, sizeof(msg_to_sign));
+
+  // Set GATT characteristics
+  ble_serial->setMeshCoreCharacteristics(self_id.pub_key, &device_info, signature);
+
+  // Start initial BLE advertisement
+  updateBLEAdvertisement();
+
+  #if BLE_ADVERT
+  // Initialize BLE discovery manager for auto-discovery
+  _ble_discovery.begin(this);  // Pass BaseChatMesh pointer
+
+  #if defined(NRF52_PLATFORM)
+  // nRF52 needs SerialBLEInterface pointer for client operations
+  _ble_discovery.setBLEInterface(ble_serial);
+  #endif
+
+  // Start BLE scanning for auto-discovery
+  // Controlled by BLE_SCANNING define in SerialBLEInterface.cpp
+  ble_serial->startScanning(&_ble_discovery);
+
+  #ifndef BLE_SCANNING
+  #define BLE_SCANNING 0
+  #endif
+  #if BLE_SCANNING
+  MESH_DEBUG_PRINTLN("BLE discovery initialized ✓ (advertising + scanning)");
+  #else
+  MESH_DEBUG_PRINTLN("BLE discovery initialized ✓ (advertising only, scanning DISABLED)");
+  #endif
+  #else
+  MESH_DEBUG_PRINTLN("BLE initialized ✓ (basic functionality, discovery DISABLED)");
+  #endif
+}
+
+void MyMesh::updateBLEAdvertisement() {
+  #if BLE_ADVERT == 0
+  return;  // Skip BLE advertisement update when disabled
+  #endif
+
+  // Cast serial interface to SerialBLEInterface
+  #if defined(ESP32) || defined(NRF52_PLATFORM)
+  SerialBLEInterface* ble_serial = static_cast<SerialBLEInterface*>(_serial);
+  #else
+  return;
+  #endif
+
+  // Build manufacturer data for BLE advertisement
+  BLEManufacturerData data;
+  data.manufacturer_id = MESHCORE_MANUFACTURER_ID;
+  data.magic_byte = MESHCORE_MAGIC_BYTE;
+  data.protocol_version = MESHCORE_PROTOCOL_VERSION;
+  data.device_hash = self_id.pub_key[0]; // First byte of public key (routing hash)
+
+  // Set device type and location flag
+  data.flags = BLE_FLAGS_SET_TYPE(0, ADV_TYPE_CHAT);
+
+  // Include location if GPS advertising enabled
+  if (_prefs.advert_loc_policy != ADVERT_LOC_NONE && sensors.node_lat != 0 && sensors.node_lon != 0) {
+    data.flags |= BLE_FLAG_HAS_LOCATION;
+    data.latitude = sensors.node_lat * 100000.0;  // 1E5 for meter accuracy
+    data.longitude = sensors.node_lon * 100000.0;  // 1E5 for meter accuracy
+  } else {
+    data.latitude = 0;
+    data.longitude = 0;
+  }
+
+  // Set timestamp
+  data.timestamp = getRTCClock()->getCurrentTime();
+
+  // Calculate CRC16 for validation (exclude CRC field itself)
+  data.crc16 = ble_crc16_calc((const uint8_t*)&data, 18);
+
+  // Clear reserved bytes
+  memset(data.reserved, 0, sizeof(data.reserved));
+
+  // Update BLE advertisement
+  ble_serial->updateManufacturerData(data);
+
+  last_ble_update = millis();
+
+  MESH_DEBUG_PRINTLN("BLE advertisement updated: hash=%02X, has_loc=%d", data.device_hash, BLE_FLAGS_HAS_LOCATION(data.flags));
+}
+
+#else
+// No BLE support - stub implementations
+void MyMesh::initBLEDiscovery() {
+  // BLE not enabled
+}
+
+void MyMesh::updateBLEAdvertisement() {
+  // BLE not enabled
+}
+#endif // BLE_PIN_CODE

@@ -33,6 +33,16 @@
 #include <helpers/IdentityStore.h>
 #include <helpers/SimpleMeshTables.h>
 #include <helpers/StaticPoolPacketManager.h>
+#include <helpers/BLEServiceDefinitions.h>
+
+#if defined(BLE_PIN_CODE)
+  #if defined(ESP32)
+    #include <helpers/esp32/ESP32BLEDiscoveryManager.h>
+  #elif defined(NRF52_PLATFORM)
+    #include <helpers/nrf52/nRF52BLEDiscoveryManager.h>
+  #endif
+#endif
+
 #include <target.h>
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
@@ -97,6 +107,7 @@ public:
   const char *getNodeName();
   NodePrefs *getNodePrefs();
   uint32_t getBLEPin();
+  const uint8_t* getMyPubKey() { return self_id.pub_key; }
 
   void loop();
   void handleCmdFrame(size_t len);
@@ -109,9 +120,22 @@ public:
   void savePrefs() { _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon); }
   void saveChannels() { _store->saveChannels(this); }
   void saveContacts() { _store->saveContacts(this); }
+  bool clearAllFilesExceptSettings() { return _store->clearAllFilesExceptSettings(); }
 
   // Location advertising callback (must be public for external access)
   static void onLocationAdvertTrigger(double lat, double lon);
+
+  // BLE discovery methods (companion radio: advertising + scanning)
+  void initBLEDiscovery();
+  void updateBLEAdvertisement();
+
+  #if defined(BLE_PIN_CODE) && BLE_ADVERT
+    #if defined(ESP32)
+      ESP32BLEDiscoveryManager* getBLEDiscovery() { return &_ble_discovery; }
+    #elif defined(NRF52_PLATFORM)
+      nRF52BLEDiscoveryManager* getBLEDiscovery() { return &_ble_discovery; }
+    #endif
+  #endif
 
 protected:
   float getAirtimeBudgetFactor() const override;
@@ -187,6 +211,16 @@ private:
   uint32_t pending_req;   // pending _BINARY_REQ
   BaseSerialInterface *_serial;
   AbstractUITask* _ui;
+
+  // BLE discovery tracking
+  unsigned long last_ble_update;
+  #if defined(BLE_PIN_CODE) && BLE_ADVERT
+    #if defined(ESP32)
+      ESP32BLEDiscoveryManager _ble_discovery;
+    #elif defined(NRF52_PLATFORM)
+      nRF52BLEDiscoveryManager _ble_discovery;
+    #endif
+  #endif
 
   ContactsIterator _iter;
   uint32_t _iter_filter_since;

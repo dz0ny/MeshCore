@@ -1,4 +1,5 @@
 #include "SerialBLEInterface.h"
+#include "../BLEDiscoveryManager.h"
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -9,11 +10,52 @@
 
 #define ADVERT_RESTART_DELAY  1000   // millis
 
+// BLE Scan callback for MeshCore discovery
+class MeshCoreScanCallbacks : public BLEAdvertisedDeviceCallbacks {
+private:
+  BLEDiscoveryManager* discovery_mgr;
+
+public:
+  MeshCoreScanCallbacks(BLEDiscoveryManager* mgr) : discovery_mgr(mgr) {}
+
+  void onResult(BLEAdvertisedDevice advertisedDevice) override {
+    if (!discovery_mgr) return;
+
+    // Get manufacturer data
+    std::string mfgData = advertisedDevice.getManufacturerData();
+    if (mfgData.length() > 0) {
+      // Extract MAC address
+      uint8_t mac[6];
+      memcpy(mac, advertisedDevice.getAddress().getNative(), 6);
+
+      // Get RSSI
+      int rssi = advertisedDevice.getRSSI();
+
+      // Call discovery manager callback
+      discovery_mgr->onAdvertisementReceived(
+        mac,
+        (const uint8_t*)mfgData.data(),
+        mfgData.length(),
+        rssi
+      );
+    }
+  }
+};
+
 void SerialBLEInterface::begin(const char* device_name, uint32_t pin_code) {
   _pin_code = pin_code;
 
+  // Safety check: ensure device name is not empty or null
+  const char* ble_name = device_name;
+  if (device_name == nullptr || device_name[0] == '\0') {
+    BLE_DEBUG_PRINTLN("WARNING: Empty device name provided, using default 'MeshCore'");
+    ble_name = "MeshCore";
+  } else {
+    BLE_DEBUG_PRINTLN("SerialBLEInterface::begin - BLE name set to: %s", device_name);
+  }
+
   // Create the BLE Device
-  BLEDevice::init(device_name);
+  BLEDevice::init(ble_name);
   BLEDevice::setSecurityCallbacks(this);
   BLEDevice::setMTU(MAX_FRAME_SIZE);
 
@@ -239,4 +281,146 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
 
 bool SerialBLEInterface::isConnected() const {
   return deviceConnected;  //pServer != NULL && pServer->getConnectedCount() > 0;
+}
+
+// ---------- MeshCore BLE discovery methods
+
+void SerialBLEInterface::createMeshCoreService() {
+  if (!pServer) {
+    BLE_DEBUG_PRINTLN("ERROR: createMeshCoreService() called before begin()");
+    return;
+  }
+
+  // Create MeshCore service
+  pMeshCoreService = pServer->createService(MESHCORE_SERVICE_UUID);
+
+  // Create public key characteristic (32 bytes, READ only)
+  pPubKeyChar = pMeshCoreService->createCharacteristic(
+    MESHCORE_PUBKEY_UUID,
+    BLECharacteristic::PROPERTY_READ
+  );
+
+  // Create device info characteristic (variable length, READ only)
+  pDeviceInfoChar = pMeshCoreService->createCharacteristic(
+    MESHCORE_DEVICE_INFO_UUID,
+    BLECharacteristic::PROPERTY_READ
+  );
+
+  // Create signature characteristic (64 bytes, READ only)
+  pSignatureChar = pMeshCoreService->createCharacteristic(
+    MESHCORE_SIGNATURE_UUID,
+    BLECharacteristic::PROPERTY_READ
+  );
+
+  // Start the MeshCore service
+  pMeshCoreService->start();
+
+  // Add MeshCore service UUID to advertising
+  pServer->getAdvertising()->addServiceUUID(MESHCORE_SERVICE_UUID);
+
+  BLE_DEBUG_PRINTLN("MeshCore service created");
+}
+
+void SerialBLEInterface::updateManufacturerData(const BLEManufacturerData& data) {
+  if (!pServer) {
+    BLE_DEBUG_PRINTLN("ERROR: updateManufacturerData() called before begin()");
+    return;
+  }
+
+  // OPTIMIZATION: Compare with last advertised data to avoid unnecessary BLE stack updates
+  // This reduces radio activity, power consumption, and BLE stack churn
+
+  static BLEManufacturerData last_advertised_data = {0};
+  static bool first_update = true;
+
+  // Compare with last advertised data (skip timestamp field which changes frequently)
+  // We only care about meaningful changes: location, flags, device type
+  bool data_changed = first_update ||
+    last_advertised_data.manufacturer_id != data.manufacturer_id ||
+    last_advertised_data.magic_byte != data.magic_byte ||
+    last_advertised_data.protocol_version != data.protocol_version ||
+    last_advertised_data.device_hash != data.device_hash ||
+    last_advertised_data.flags != data.flags ||
+    last_advertised_data.latitude != data.latitude ||
+    last_advertised_data.longitude != data.longitude;
+    // NOTE: timestamp and CRC intentionally excluded from comparison
+
+  if (!data_changed) {
+    BLE_DEBUG_PRINTLN("SerialBLEInterface: Manufacturer data unchanged, skipping BLE update");
+    return; // Skip unnecessary BLE stack update
+  }
+
+  BLE_DEBUG_PRINTLN("SerialBLEInterface::updateManufacturerData - data changed, updating");
+
+  // Save current data for next comparison
+  memcpy(&last_advertised_data, &data, sizeof(BLEManufacturerData));
+  first_update = false;
+
+  // Create advertisement data
+  BLEAdvertisementData advData;
+
+  // Set manufacturer data (27 bytes)
+  std::string mfgData((char*)&data, sizeof(BLEManufacturerData));
+  advData.setManufacturerData(mfgData);
+
+  // Keep existing service UUIDs (both UART and MeshCore services)
+  advData.setCompleteServices(BLEUUID(SERVICE_UUID));
+
+  // Update advertising data
+  pServer->getAdvertising()->setAdvertisementData(advData);
+
+  // Restart advertising if currently enabled
+  if (_isEnabled && !deviceConnected) {
+    pServer->getAdvertising()->stop();
+    pServer->getAdvertising()->start();
+    BLE_DEBUG_PRINTLN("Manufacturer data updated, advertising restarted");
+  } else {
+    BLE_DEBUG_PRINTLN("Manufacturer data updated (will apply on next advertising start)");
+  }
+}
+
+void SerialBLEInterface::setMeshCoreCharacteristics(const uint8_t* pubkey, const BLEDeviceInfo* device_info, const uint8_t* signature) {
+  if (!pMeshCoreService || !pPubKeyChar || !pDeviceInfoChar || !pSignatureChar) {
+    BLE_DEBUG_PRINTLN("ERROR: setMeshCoreCharacteristics() called before createMeshCoreService()");
+    return;
+  }
+
+  // Set public key (32 bytes)
+  if (pubkey) {
+    pPubKeyChar->setValue((uint8_t*)pubkey, 32);
+    BLE_DEBUG_PRINTLN("Public key characteristic set");
+  }
+
+  // Set device info (variable length)
+  if (device_info) {
+    pDeviceInfoChar->setValue((uint8_t*)device_info, sizeof(BLEDeviceInfo));
+    BLE_DEBUG_PRINTLN("Device info characteristic set");
+  }
+
+  // Set signature (64 bytes)
+  if (signature) {
+    pSignatureChar->setValue((uint8_t*)signature, 64);
+    BLE_DEBUG_PRINTLN("Signature characteristic set");
+  }
+}
+
+void SerialBLEInterface::startScanning(BLEDiscoveryManager* discovery_mgr) {
+  if (!discovery_mgr) {
+    BLE_DEBUG_PRINTLN("ERROR: startScanning() called with NULL discovery_mgr");
+    return;
+  }
+
+  // Create BLE scan object if not already created
+  if (!pBLEScan) {
+    pBLEScan = BLEDevice::getScan();
+    pBLEScan->setAdvertisedDeviceCallbacks(new MeshCoreScanCallbacks(discovery_mgr));
+    pBLEScan->setActiveScan(true);  // Active scan uses more power but gets scan response data
+    pBLEScan->setInterval(100);     // How often to scan (ms)
+    pBLEScan->setWindow(99);        // How long to scan during the interval (ms)
+  }
+
+  // Start continuous scanning (0 = scan forever, true = continue scanning)
+  pBLEScan->start(0, true);  // 0 = scan forever, true = continue (don't stop)
+
+  BLE_DEBUG_PRINTLN("BLE scanning started for MeshCore discovery");
 }

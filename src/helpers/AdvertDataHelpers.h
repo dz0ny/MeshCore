@@ -26,8 +26,8 @@ class AdvertDataBuilder {
 public:
   AdvertDataBuilder(uint8_t adv_type) : _type(adv_type), _name(NULL), _has_loc(false) { }
   AdvertDataBuilder(uint8_t adv_type, const char* name) : _type(adv_type), _name(name), _has_loc(false) { }
-  AdvertDataBuilder(uint8_t adv_type, const char* name, double lat, double lon) : 
-      _type(adv_type), _name(name), _has_loc(true), _lat(lat * 1E6), _lon(lon * 1E6)  { }
+  AdvertDataBuilder(uint8_t adv_type, const char* name, double lat, double lon) :
+      _type(adv_type), _name(name), _has_loc(true), _lat(lat * 1E5), _lon(lon * 1E5)  { }  // 1E5 for meter accuracy
 
   void setFeat1(uint16_t extra) { _extra1 = extra; }
   void setFeat2(uint16_t extra) { _extra2 = extra; }
@@ -61,8 +61,8 @@ public:
   bool hasLatLon() const { return (_flags & ADV_LATLON_MASK) != 0; }
   int32_t getIntLat() const { return _lat; }
   int32_t getIntLon() const { return _lon; }
-  double getLat() const { return ((double)_lat) / 1000000.0; }
-  double getLon() const { return ((double)_lon) / 1000000.0; }
+  double getLat() const { return ((double)_lat) / 100000.0; }  // 1E5 for meter accuracy
+  double getLon() const { return ((double)_lon) / 100000.0; }  // 1E5 for meter accuracy
 };
 
 class AdvertTimeHelper {
