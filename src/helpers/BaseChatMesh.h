@@ -147,6 +147,7 @@ public:
   void scanRecentContacts(int last_n, ContactVisitor* visitor);
   ContactInfo* searchContactsByPrefix(const char* name_prefix);
   ContactInfo* lookupContactByPubKey(const uint8_t* pub_key, int prefix_len);
+  ContactInfo* findContactByHash(uint8_t device_hash);  // Find contact by first byte of public key (BLE discovery)
   bool  removeContact(ContactInfo& contact);
   bool  addContact(const ContactInfo& contact);
   int getNumContacts() const { return num_contacts; }

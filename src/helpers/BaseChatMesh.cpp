@@ -1,6 +1,10 @@
 #include <helpers/BaseChatMesh.h>
 #include <Utils.h>
 
+#ifdef NRF52_PLATFORM
+#include <helpers/nrf52/nrf52_watchdog.h>
+#endif
+
 #ifndef SERVER_RESPONSE_DELAY
   #define SERVER_RESPONSE_DELAY   300
 #endif
@@ -682,13 +686,28 @@ ContactInfo* BaseChatMesh::lookupContactByPubKey(const uint8_t* pub_key, int pre
   return NULL;  // not found
 }
 
+ContactInfo* BaseChatMesh::findContactByHash(uint8_t device_hash) {
+  // Find contact by first byte of public key (used by BLE discovery)
+  for (int i = 0; i < num_contacts; i++) {
+    auto c = &contacts[i];
+    if (c->id.pub_key[0] == device_hash) return c;
+  }
+  return NULL;  // not found
+}
+
 bool BaseChatMesh::addContact(const ContactInfo& contact) {
   if (num_contacts < MAX_CONTACTS) {
     auto dest = &contacts[num_contacts++];
     *dest = contact;
 
     // calc the ECDH shared secret (just once for performance)
+    // This is a crypto operation that can take 1-3 seconds on NRF52
     self_id.calcSharedSecret(dest->shared_secret, contact.id);
+
+    #ifdef NRF52_PLATFORM
+    // Feed watchdog after crypto operation
+    nrf52_wdt_feed();
+    #endif
 
     return true;  // success
   }

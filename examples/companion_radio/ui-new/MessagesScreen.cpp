@@ -1,11 +1,42 @@
 #include "MessagesScreen.h"
 #include "UITask.h"
+#include "UIHelpers.h"
 #include "../MyMesh.h"
 
 extern MyMesh the_mesh;
 
 static constexpr int SCREEN_TOP_MARGIN = 20;
-static constexpr int SCREEN_BOTTOM_MARGIN = 18;
+static constexpr int SCREEN_BOTTOM_MARGIN = 5;
+
+// Macro to draw thin dotted border around selected item
+#define DRAW_SELECTION_BORDER(is_selected, y_pos, spacing) \
+  if (is_selected) { \
+    display.setColor(DisplayDriver::LIGHT); \
+    int border_x = 1, border_y = (y_pos), border_w = display.width() - 2, border_h = (spacing) + 2; \
+    for (int x = border_x; x < border_x + border_w; x += 3) { \
+      display.fillRect(x, border_y, 1, 1); \
+    } \
+    for (int x = border_x; x < border_x + border_w; x += 3) { \
+      display.fillRect(x, border_y + border_h - 1, 1, 1); \
+    } \
+    for (int y = border_y; y < border_y + border_h; y += 3) { \
+      display.fillRect(border_x, y, 1, 1); \
+    } \
+    for (int y = border_y; y < border_y + border_h; y += 3) { \
+      display.fillRect(border_x + border_w - 1, y, 1, 1); \
+    } \
+    display.setColor(DisplayDriver::LIGHT); \
+  }
+
+// Macro to draw dotted border with custom margins (for menu items)
+#define DRAW_MENU_BORDER(is_selected, y_pos, margin_x, height) \
+  if (is_selected) { \
+    int bx = (margin_x), by = (y_pos) - 2, bw = display.width() - 2 * (margin_x), bh = (height); \
+    for (int x = bx; x < bx + bw; x += 3) display.fillRect(x, by, 1, 1); \
+    for (int x = bx; x < bx + bw; x += 3) display.fillRect(x, by + bh - 1, 1, 1); \
+    for (int y = by; y < by + bh; y += 3) display.fillRect(bx, y, 1, 1); \
+    for (int y = by; y < by + bh; y += 3) display.fillRect(bx + bw - 1, y, 1, 1); \
+  }
 
 MessagesScreen::MessagesScreen(UITask* task, MessageStore* msg_store)
   : _task(task),
@@ -49,27 +80,17 @@ int MessagesScreen::render(DisplayDriver& display) {
 }
 
 void MessagesScreen::renderListView(DisplayDriver& display) {
-  // Draw header
-  display.setTextSize(1);
-  display.setColor(DisplayDriver::LIGHT);
-  display.setCursor(0, 0);
-
   uint8_t total = _msg_store->getCount();
   uint8_t unread = _msg_store->getUnreadCount();
 
+  // Draw header
   char header[32];
   if (unread > 0) {
     snprintf(header, sizeof(header), "Messages %d/%d", unread, total);
   } else {
     snprintf(header, sizeof(header), "Messages %d", total);
   }
-  display.print(header);
-
-  // Draw separator line (below header text)
-  display.setColor(DisplayDriver::LIGHT);
-  for (int dx = 0; dx < display.width(); dx += 3) {
-    display.fillRect(dx, 20, 1, 1);
-  }
+  DRAW_SCREEN_HEADER(header, _task);
 
   if (total == 0) {
     // No messages
@@ -101,30 +122,26 @@ void MessagesScreen::renderListView(DisplayDriver& display) {
     bool is_selected = (i == _selected_idx);
     bool is_unread = !(msg->flags & 0x01);
 
-    // Highlight selected item
-    if (is_selected) {
-      display.setColor(DisplayDriver::LIGHT);
-      display.fillRect(0, y - 2, display.width(), line_height);
-      display.setColor(DisplayDriver::DARK);
-    } else {
-      display.setColor(DisplayDriver::LIGHT);
-    }
+    display.setColor(DisplayDriver::LIGHT);
+
+    // Draw thick border around selected item
+    DRAW_SELECTION_BORDER(is_selected, y, line_height);
 
     // Draw sender name
     display.setTextSize(0);
-    display.setCursor(2, y);
+    display.setCursor(6, y);
 
     char sender_buf[MAX_SENDER_NAME_LEN + 10];
     if (is_unread) {
-      snprintf(sender_buf, sizeof(sender_buf), "* %s", msg->sender_name);
+      snprintf(sender_buf, sizeof(sender_buf), "*%s", msg->sender_name);
     } else {
-      snprintf(sender_buf, sizeof(sender_buf), "  %s", msg->sender_name);
+      snprintf(sender_buf, sizeof(sender_buf), " %s", msg->sender_name);
     }
     display.print(sender_buf);
 
     // Draw message preview on second line
-    display.setCursor(2, y + 9);
-    char preview[25];
+    display.setCursor(6, y + 9);
+    char preview[23];
     int preview_len = getMessagePreviewLen(msg->msg);
     strncpy(preview, msg->msg, preview_len);
     preview[preview_len] = '\0';
@@ -157,36 +174,37 @@ void MessagesScreen::renderMessageView(DisplayDriver& display) {
   // Draw header with sender info
   display.setTextSize(0);
   display.setColor(DisplayDriver::YELLOW);
-  display.setCursor(0, 0);
+  display.setCursor(0, 2);
 
   char sender_info[64];
   formatSenderInfo(msg, sender_info, sizeof(sender_info));
   display.print(sender_info);
 
-  // Draw timestamp on second line
+  // Draw timestamp on second line with better spacing
   display.setColor(DisplayDriver::LIGHT);
-  display.setCursor(0, 9);
+  display.setCursor(0, 11);
   char time_buf[32];
   formatTimestamp(msg->timestamp, time_buf, sizeof(time_buf));
   display.print(time_buf);
 
-  // Draw separator line
+  // Draw separator line with better spacing
   display.setColor(DisplayDriver::LIGHT);
   for (int dx = 0; dx < display.width(); dx += 3) {
-    display.fillRect(dx, 18, 1, 1);
+    display.fillRect(dx, 22, 1, 1);
   }
 
-  // Draw message text with scrolling
-  int y = SCREEN_TOP_MARGIN;
+  // Draw message text with better formatting
+  int y = 26; // Start below separator with margin
   int screen_height = display.height();
-  int available_height = screen_height - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+  int available_height = screen_height - y - SCREEN_BOTTOM_MARGIN;
 
-  display.setTextSize(1);
+  // Use smaller text size for better readability
+  display.setTextSize(0);
   display.setColor(DisplayDriver::LIGHT);
-  display.setCursor(2, y);
+  display.setCursor(4, y);
 
-  // Simple word wrap the message (scroll not implemented for now)
-  display.printWordWrap(msg->msg, display.width() - 4);
+  // Word wrap the message with proper margins
+  display.printWordWrap(msg->msg, display.width() - 8);
 
   // Footer removed for cleaner UI
 }
@@ -199,53 +217,33 @@ void MessagesScreen::renderMenuView(DisplayDriver& display) {
   }
 
   // Draw header
-  display.setTextSize(1);
-  display.setColor(DisplayDriver::LIGHT);
-  display.setCursor(0, 0);
-  display.print("Options");
+  DRAW_SCREEN_HEADER("Options", _task);
 
-  // Draw separator line
-  display.setColor(DisplayDriver::LIGHT);
-  for (int dx = 0; dx < display.width(); dx += 3) {
-    display.fillRect(dx, 13, 1, 1);
-  }
-
-  // Draw menu options (Nokia style)
+  // Draw menu options
   int y = 30;
+  int menu_spacing = 25;
+  int menu_height = 18;
   display.setTextSize(1);
+  display.setColor(DisplayDriver::LIGHT);
 
   // Option 0: Back to Read
-  if (_menu_selection == 0) {
-    display.setColor(DisplayDriver::LIGHT);
-    display.fillRect(10, y - 2, display.width() - 20, 18);
-    display.setColor(DisplayDriver::DARK);
-  } else {
-    display.setColor(DisplayDriver::LIGHT);
-  }
+  DRAW_MENU_BORDER(_menu_selection == 0, y, 10, menu_height);
   display.setCursor(15, y);
   display.print("Read");
 
-  y += 25;
+  y += menu_spacing;
 
   // Option 1: Delete
-  if (_menu_selection == 1) {
-    display.setColor(DisplayDriver::LIGHT);
-    display.fillRect(10, y - 2, display.width() - 20, 18);
-    display.setColor(DisplayDriver::DARK);
-  } else {
-    display.setColor(DisplayDriver::LIGHT);
-  }
+  DRAW_MENU_BORDER(_menu_selection == 1, y, 10, menu_height);
   display.setCursor(15, y);
   display.print("Delete");
-
-  // Footer removed for cleaner UI
 }
 
 bool MessagesScreen::handleInput(char c) {
   switch (_mode) {
     case LIST_VIEW: {
-      // Always handle cancel/back button, even with no messages
-      if (c == KEY_CANCEL || c == KEY_LEFT) {
+      // Always handle cancel button, even with no messages
+      if (c == KEY_CANCEL) {
         _task->gotoHomeScreen();
         return true;
       }
@@ -309,7 +307,7 @@ bool MessagesScreen::handleInput(char c) {
         return true;
       }
 
-      if (c == KEY_CANCEL || c == KEY_LEFT) {
+      if (c == KEY_CANCEL) {
         // Back to list
         _mode = LIST_VIEW;
         return true;
@@ -349,7 +347,7 @@ bool MessagesScreen::handleInput(char c) {
         return true;
       }
 
-      if (c == KEY_CANCEL || c == KEY_LEFT) {
+      if (c == KEY_CANCEL) {
         // Cancel menu
         _mode = MESSAGE_VIEW;
         return true;

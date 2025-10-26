@@ -1,8 +1,9 @@
 #include "DebugKeyScreen.h"
 #include "UITask.h"
+#include "UIHelpers.h"
 #include <Arduino.h>
 
-static constexpr int SCREEN_TOP_MARGIN = 22;
+static constexpr int SCREEN_TOP_MARGIN = 26;
 
 DebugKeyScreen::DebugKeyScreen(UITask* task)
   : _task(task), _history_count(0), _scroll_offset(0) {
@@ -40,19 +41,22 @@ int DebugKeyScreen::render(DisplayDriver& display) {
   // Draw header
   display.setTextSize(0);
   display.setColor(DisplayDriver::RED);
-  display.setCursor(0, 0);
-  display.print("DEBUG: Key Presses");
+  display.setCursor(0, 2);
+  display.print("DEBUG Keys");
 
   // Draw warning
   display.setTextSize(0);
   display.setColor(DisplayDriver::YELLOW);
-  display.setCursor(0, 8);
-  display.print("RESTART DEVICE TO EXIT");
+  display.setCursor(0, 11);
+  display.print("Restart to exit");
+
+  // Draw battery indicator (consistent with other screens)
+  renderHeaderWidgets(display, _task->getBattMilliVolts());
 
   // Draw separator
   display.setColor(DisplayDriver::LIGHT);
   for (int dx = 0; dx < display.width(); dx += 3) {
-    display.fillRect(dx, 18, 1, 1);
+    display.fillRect(dx, 22, 1, 1);
   }
 
   // Draw key history
@@ -65,23 +69,25 @@ int DebugKeyScreen::render(DisplayDriver& display) {
   int visible_lines = available_height / line_height;
 
   if (_history_count == 0) {
-    display.setCursor(5, y + 10);
-    display.print("No keys pressed yet...");
+    display.setCursor(4, y + 5);
+    display.print("Press any key...");
   } else {
     // Show most recent keys first
     int start_idx = max(0, _history_count - visible_lines - _scroll_offset);
     int end_idx = min(_history_count, start_idx + visible_lines);
 
     for (int i = end_idx - 1; i >= start_idx; i--) {
-      char buf[40];
+      char buf[32];
       unsigned long elapsed = (millis() - _key_history[i].timestamp) / 1000;
-      snprintf(buf, sizeof(buf), "%2d: %10s (0x%02X) %lus ago",
+
+      // More compact format: "1: UP (0x15) 5s"
+      snprintf(buf, sizeof(buf), "%d: %s (0x%02X) %lus",
                _history_count - i,
                getKeyName(_key_history[i].key),
                (uint8_t)_key_history[i].key,
                elapsed);
 
-      display.setCursor(2, y);
+      display.setCursor(4, y);
       display.print(buf);
       y += line_height;
     }
@@ -89,9 +95,9 @@ int DebugKeyScreen::render(DisplayDriver& display) {
 
   // Draw count at bottom
   display.setColor(DisplayDriver::GREEN);
-  char count_buf[30];
-  snprintf(count_buf, sizeof(count_buf), "Total: %d keys", _history_count);
-  display.setCursor(2, display.height() - 10);
+  char count_buf[20];
+  snprintf(count_buf, sizeof(count_buf), "Total: %d", _history_count);
+  display.setCursor(4, display.height() - 10);
   display.print(count_buf);
 
   return 500; // Refresh every 500ms to update timestamps

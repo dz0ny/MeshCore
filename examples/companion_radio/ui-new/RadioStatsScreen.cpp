@@ -1,12 +1,13 @@
 #include "RadioStatsScreen.h"
 #include "UITask.h"
+#include "UIHelpers.h"
 #include "../MyMesh.h"
 #include "target.h"
 
 extern MyMesh the_mesh;
 
 static constexpr int SCREEN_TOP_MARGIN = 20;
-static constexpr int SCREEN_BOTTOM_MARGIN = 18;
+static constexpr int SCREEN_BOTTOM_MARGIN = 5;
 
 RadioStatsScreen::RadioStatsScreen(UITask* task, SensorManager* sensors, NodePrefs* node_prefs)
   : _task(task),
@@ -19,16 +20,7 @@ int RadioStatsScreen::render(DisplayDriver& display) {
   display.startFrame();
 
   // Draw header
-  display.setTextSize(1);
-  display.setColor(DisplayDriver::LIGHT);
-  display.setCursor(0, 0);
-  display.print("Radio Stats");
-
-  // Draw separator line
-  display.setColor(DisplayDriver::LIGHT);
-  for (int dx = 0; dx < display.width(); dx += 3) {
-    display.fillRect(dx, 20, 1, 1);
-  }
+  DRAW_SCREEN_HEADER("Radio Stats", _task);
 
   // Draw radio statistics
   display.setColor(DisplayDriver::YELLOW);
@@ -64,13 +56,13 @@ int RadioStatsScreen::render(DisplayDriver& display) {
 
   // Footer removed for cleaner UI
 
-  return 1000; // Refresh every second
+  return 30000; // Refresh every 30 seconds
 }
 
 bool RadioStatsScreen::handleInput(char c) {
   if (c == KEY_CANCEL || c == KEY_LEFT) {
-    // Back to settings
-    _task->gotoSettingsScreen();
+    // Back to reports
+    _task->gotoReportsScreen();
     return true;
   }
 

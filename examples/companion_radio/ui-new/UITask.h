@@ -22,6 +22,9 @@
 #include "SettingsScreen.h"
 #include "RadioStatsScreen.h"
 #include "NearbyScreen.h"
+#include "GPSScreen.h"
+#include "ReportsScreen.h"
+#include "TelemetryScreen.h"
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
@@ -50,9 +53,12 @@ class UITask : public AbstractUITask {
   UIScreen* msg_preview;
   UIScreen* messages;
   UIScreen* nearby;
+  UIScreen* gps_screen;
   UIScreen* debug_keys;
   UIScreen* settings;
   UIScreen* radio_stats;
+  UIScreen* reports_screen;
+  UIScreen* telemetry_screen;
   UIScreen* curr;
 
   void userLedHandler();
@@ -84,6 +90,9 @@ public:
     ((NearbyScreen*)nearby)->reset();
     setCurrScreen(nearby);
   }
+  void gotoGPSScreen() {
+    setCurrScreen(gps_screen);
+  }
   void gotoSettingsScreen() {
     ((SettingsScreen*)settings)->reset();
     setCurrScreen(settings);
@@ -93,6 +102,13 @@ public:
   }
   void gotoRadioStatsScreen() {
     setCurrScreen(radio_stats);
+  }
+  void gotoReportsScreen() {
+    ((ReportsScreen*)reports_screen)->reset();
+    setCurrScreen(reports_screen);
+  }
+  void gotoTelemetryScreen() {
+    setCurrScreen(telemetry_screen);
   }
   MessagesScreen* getMessagesScreen() { return (MessagesScreen*)messages; }
   void showAlert(const char* text, int duration_millis);

@@ -40,34 +40,37 @@ The home screen is a carousel of multiple pages that can be navigated with left/
 - Shows welcome screen with device information
 - Displays battery status
 - Shows mesh network status
+- Shows connection status or BLE pairing PIN
 
-#### 2. SETTINGS Page
-- Quick link to settings screen
-- Press Enter to access full settings menu
+#### 2. ADVERT Page
+- Shows current node's advertisement status
+- Displays what information is being broadcast
+- Press Enter to send advertisement
 
-#### 3. MESSAGES Page
+#### 3. NEARBY Page
+- Shows count of nearby nodes
+- Displays newest node name
+- Press Enter/Select to open full Nearby screen with list and map views
+
+#### 4. MESSAGES Page
 - Shows message count badge
 - Displays "Messages" label
 - Press Enter to view messages
 - When new message arrives, home screen jumps to this page automatically
 
-#### 4. NEARBY Page
-- Shows count of nearby nodes
-- Displays newest node name
-- Press Enter/Select to open full Nearby screen
+#### 5. REPORTS Page
+- Quick link to reports screen
+- Shows "Press to view" prompt
+- Press Enter/Select to access reports menu
+- Contains GPS Info, Radio Stats, Telemetry, and Debug Keys
 
-#### 5. ADVERT Page
-- Shows current node's advertisement status
-- Displays what information is being broadcast
-
-#### 6. SENSORS Page
-- Shows all available sensor readings
-- Temperature, humidity, pressure
-- Battery voltage and percentage
-- Updates every 5 seconds
+#### 6. SETTINGS Page
+- Quick link to settings screen
+- Press Enter to access full settings menu
+- Configuration for BLE, Sound, GPS, Location Advertising, and Privacy
 
 #### 7. SHUTDOWN Page
-- Press Enter for options menu
+- Press Enter to hibernate device
 - Can shutdown or restart device
 
 ### Navigation:
@@ -212,13 +215,13 @@ Displays nearby mesh nodes with distance and time information, with interactive 
   - Node name
   - Time since last heard (e.g., "2m", "15s", "3h")
   - Distance if GPS available (e.g., "150m", "2.3km")
-  - Selection indicator (">") for currently selected node
+  - Selection indicator (">") for currently selected node (always visible)
+- First node is selected by default when entering screen
 - Empty state: "No nodes nearby"
 - Header: "Nearby Nodes"
-- Footer: "Up/Down:Select Enter:Map" or "Back: Home"
 
 **Controls**:
-- **Up/Down**: Select node in list
+- **Up/Down**: Navigate through node list (with wraparound)
 - **Enter/Select**: View map for selected node
 - **Back/Left**: Return to home screen
 
@@ -251,6 +254,60 @@ Displays interactive map when a node is selected.
 
 ---
 
+## GPS Screen
+
+**Files**:
+- `examples/companion_radio/ui-new/GPSScreen.h`
+- `examples/companion_radio/ui-new/GPSScreen.cpp`
+
+Displays detailed GPS information including coordinates, satellite count, and accuracy.
+
+### Display States:
+
+#### GPS OFF
+- Shows "[ GPS OFF ]"
+- Message: "Enable in Settings"
+- Centered display
+
+#### GPS ERROR
+- Shows "GPS: ERROR"
+- Message: "Can't access GPS"
+- GPS is enabled but hardware is inaccessible
+
+#### GPS Active
+Shows live GPS data in two-column format:
+
+```
+GPS
+--------------------
+GPS [FIX]          8s
+lat           37.77493
+lon         -122.41942
+alt             15.2m
+acc               12m
+```
+
+**Data fields:**
+- **Status**: "GPS [FIX]" or "GPS [SEARCH]"
+- **Satellite count**: Number shown on right (e.g., "8s")
+- **lat**: Latitude in decimal degrees (5 decimal places)
+- **lon**: Longitude in decimal degrees (5 decimal places)
+- **alt**: Altitude in meters (1 decimal place)
+- **acc**: GPS accuracy in meters (whole number)
+
+### Navigation:
+- **Back/Left**: Return to Reports screen
+- Auto-refreshes every second
+
+### Features:
+- Real-time GPS data display
+- Color-coded labels (green) and values (light)
+- Satellite count indicator
+- HDOP-based accuracy calculation
+- Centered layout for optimal readability
+
+---
+
 ## Settings Screen
 
 **Files**:
@@ -266,70 +323,54 @@ Comprehensive settings menu organized by category.
    - Enable/disable Bluetooth LE connectivity
    - Allows pairing with mobile apps
 
-2. **Show Radio Stats** (Action)
-   - Opens Radio Stats screen
-   - View radio configuration and packet statistics
-
 #### Sound
-3. **Buzzer** (Toggle)
+2. **Buzzer** (Toggle)
    - Enable/disable all buzzer sounds
    - Requires `PIN_BUZZER` to be defined
 
-4. **Key Press Buzzer** (Toggle)
+3. **Key Press Buzzer** (Toggle)
    - Enable/disable beep on button press
    - Requires `PIN_BUZZER` to be defined
 
 #### GPS - *if GPS hardware available*
-5. **GPS** (Toggle)
+4. **GPS** (Toggle)
    - Enable/disable GPS module
    - Affects power consumption
 
-**GPS Info** (Display only when GPS is ON):
-- Status: Shows FIX or SEARCH state
-- Lat: Latitude in decimal degrees
-- Lon: Longitude in decimal degrees
-- Alt: Altitude in meters
-- Acc: Accuracy in meters
-
 #### Location Advertisement - *if GPS hardware available*
-6. **Broadcast Location** (Toggle)
+5. **Broadcast Location** (Toggle)
    - Enable/disable GPS location advertising
    - Broadcasts GPS position to mesh network
 
-7. **Movement Threshold** (Value: 10-500m)
+6. **Movement Threshold** (Value: 10-500m)
    - Minimum distance moved before broadcasting update
    - Options: 10m, 50m, 100m, 200m, 500m
    - Reduces unnecessary broadcasts
 
-8. **Update Frequency** (Value: 30-300 seconds)
+7. **Update Frequency** (Value: 30-300 seconds)
    - Maximum time between location broadcasts
    - Options: 30s, 60s, 120s, 300s
    - Even if not moved
 
-9. **Guaranteed Interval** (Value: 1-15 minutes)
+8. **Guaranteed Interval** (Value: 1-15 minutes)
    - Minimum time between location checks
    - Options: 1m, 5m, 15m
    - Affects power consumption
 
-10. **Required Accuracy** (Value: 5-100m)
+9. **Required Accuracy** (Value: 5-100m)
     - Required GPS accuracy before broadcasting
     - Options: 5m, 10m, 20m, 50m, 100m
     - Prevents broadcasting inaccurate positions
 
 #### Privacy
-12. **Telemetry Share** (Cycle: DENY / FLAGS / ALL)
+10. **Telemetry Share** (Cycle: DENY / FLAGS / ALL)
     - DENY: No telemetry shared
     - FLAGS: Share basic status flags
     - ALL: Share all sensor data
 
-13. **Advertise Location** (Toggle)
+11. **Advertise Location** (Toggle)
     - Master switch for location sharing in advertisements
     - Independent of GPS Location Broadcast settings
-
-#### Misc
-14. **Show Key Presses** (Action)
-    - Opens Debug Key screen
-    - View encryption keys and node IDs
 
 ### Display Format:
 ```
@@ -338,8 +379,6 @@ Settings
  * Connectivity
 
  > Bluetooth: ON
-   GPS: ON
-   Show Radio Stats
 
  * Sound
 
@@ -348,12 +387,7 @@ Settings
 
  * GPS
 
- > GPS: ON
-   Status: FIX
-   Lat: 37.77493
-   Lon: -122.41942
-   Alt: 15.2m
-   Acc: 12m
+   GPS: ON
 
  * Location Advert
 
@@ -367,10 +401,6 @@ Settings
 
    Telemetry Share: FLAGS
    Advertise Location: ON
-
- * Misc
-
-   Show Key Presses
 ```
 
 ### Navigation:
@@ -425,13 +455,136 @@ Back: Exit
 ```
 
 ### Navigation:
-- **Back/Left**: Return to Settings screen
+- **Back/Left**: Return to Reports screen
 
 ### Features:
 - Real-time statistics (updates every second)
 - Centered layout for readability
 - Consistent header and footer styling
 - Noise floor monitoring
+
+---
+
+## Reports Screen
+
+**Files**:
+- `examples/companion_radio/ui-new/ReportsScreen.h`
+- `examples/companion_radio/ui-new/ReportsScreen.cpp`
+
+Menu screen providing access to GPS, Radio, and Telemetry data screens.
+
+### Display Format:
+
+```
+Reports
+--------------------
+
+ > Show GPS Info
+   Show Radio Stats
+   Show Telemetry
+   Show Debug Keys
+```
+
+### Menu Items:
+
+1. **Show GPS Info**
+   - Opens GPS Screen
+   - View GPS coordinates, satellite count, accuracy
+   - Returns to Reports when exiting
+
+2. **Show Radio Stats**
+   - Opens Radio Stats Screen
+   - View radio configuration and packet statistics
+   - Returns to Reports when exiting
+
+3. **Show Telemetry**
+   - Opens Telemetry Screen
+   - View battery and sensor data
+   - Returns to Reports when exiting
+
+4. **Show Debug Keys**
+   - Opens Debug Key Screen
+   - View key press history and codes
+   - Requires device restart to exit
+
+### Navigation:
+- **Up/Down**: Select menu item
+- **Enter/Select**: Open selected screen
+- **Back/Left**: Return to home screen
+
+### Features:
+- List-style menu with selection indicator (">")
+- Centered layout for optimal readability
+- Consistent navigation pattern with Settings screen
+- Auto-refresh every second
+
+---
+
+## Telemetry Screen
+
+**Files**:
+- `examples/companion_radio/ui-new/TelemetryScreen.h`
+- `examples/companion_radio/ui-new/TelemetryScreen.cpp`
+
+Displays battery status and environmental sensor readings.
+
+### Display Information:
+
+#### Battery Status (Always shown)
+- **Battery**: Percentage and voltage
+  - Example: "75% (3850mV)"
+  - Calculated from 3300mV (0%) to 4200mV (100%)
+
+#### Environmental Sensors (If available)
+- **Temperature**: Degrees Celsius with 1 decimal place
+  - Example: "23.5C"
+  - Only shown if valid reading (not -127.0)
+
+- **Humidity**: Percentage with no decimal places
+  - Example: "65%"
+  - Only shown if valid reading (>= 0)
+
+- **Pressure**: Atmospheric pressure in hectopascals
+  - Example: "1013 hPa"
+  - Only shown if valid reading (> 0)
+
+### Display Format:
+
+```
+Telemetry
+--------------------
+
+Battery         75% (3850mV)
+Temperature            23.5C
+Humidity                 65%
+Pressure            1013 hPa
+
+Back: Reports
+```
+
+**No sensors state:**
+```
+Telemetry
+--------------------
+
+Battery         75% (3850mV)
+
+   No additional sensors
+         detected
+
+Back: Reports
+```
+
+### Navigation:
+- **Back/Left**: Return to Reports screen
+- Auto-refreshes every second
+
+### Features:
+- Two-column layout (label on left, value on right)
+- Color-coded display (green labels, light values)
+- Graceful handling of missing sensors
+- Real-time data updates
+- Battery percentage calculation with clamping
 
 ---
 
@@ -496,13 +649,20 @@ Home Screen
   │     └─> Back to Home
   │
   ├─> Settings Screen (Enter/Select on SETTINGS page)
-  │     ├─> Radio Stats Screen (Select "Show Radio Stats")
-  │     │     └─> Back to Settings
-  │     ├─> Debug Key Screen (Select "Show Key Presses")
-  │     │     └─> Back to Home
   │     └─> Back to Home
   │
-  └─> GPS, SENSORS, ADVERT, SHUTDOWN pages
+  ├─> Reports Screen (Enter/Select on REPORTS page)
+  │     ├─> GPS Screen (Select "Show GPS Info")
+  │     │     └─> Back to Reports
+  │     ├─> Radio Stats Screen (Select "Show Radio Stats")
+  │     │     └─> Back to Reports
+  │     ├─> Telemetry Screen (Select "Show Telemetry")
+  │     │     └─> Back to Reports
+  │     ├─> Debug Key Screen (Select "Show Debug Keys")
+  │     │     └─> Requires restart to exit
+  │     └─> Back to Home
+  │
+  └─> ADVERT, SHUTDOWN pages
         └─> Back to Home
 ```
 

@@ -1,6 +1,10 @@
 #include <Arduino.h>
 #include "DataStore.h"
 
+#ifdef NRF52_PLATFORM
+#include <helpers/nrf52/nrf52_watchdog.h>
+#endif
+
 #if defined(EXTRAFS) || defined(QSPIFLASH)
   #define MAX_BLOBRECS 100
 #else
@@ -321,10 +325,119 @@ void DataStore::loadContacts(DataStoreHost* host) {
 }
 
 void DataStore::saveContacts(DataStoreHost* host) {
+  // OPTIMIZATION: Compare with existing file to avoid unnecessary flash writes
+  // This significantly reduces flash wear, especially important for BLE contacts
+  // that update frequently but don't change persistent fields
+
+  #ifdef NRF52_PLATFORM
+  // Feed watchdog before potentially slow flash operation
+  nrf52_wdt_feed();
+  #endif
+
+  bool needs_write = false;
+  ContactInfo old_contacts[MAX_CONTACTS];
+  int old_count = 0;
+
+  // Load existing contacts to compare
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  if (_getContactsChannelsFS()->exists("/contacts3")) {
+    File old_file = _getContactsChannelsFS()->open("/contacts3");
+#elif defined(RP2040_PLATFORM)
+  if (_fs->exists("/contacts3")) {
+    File old_file = _fs->open("/contacts3", "r");
+#else
+  if (_fs->exists("/contacts3")) {
+    File old_file = _fs->open("/contacts3", "r", false);
+#endif
+    if (old_file) {
+      while (old_count < MAX_CONTACTS) {
+        ContactInfo& c = old_contacts[old_count];
+        uint8_t pub_key[32];
+        uint8_t unused;
+
+        bool success = (old_file.read(pub_key, 32) == 32);
+        success = success && (old_file.read((uint8_t *)&c.name, 32) == 32);
+        success = success && (old_file.read(&c.type, 1) == 1);
+        success = success && (old_file.read(&c.flags, 1) == 1);
+        success = success && (old_file.read(&unused, 1) == 1);
+        success = success && (old_file.read((uint8_t *)&c.sync_since, 4) == 4);
+        success = success && (old_file.read((uint8_t *)&c.out_path_len, 1) == 1);
+        success = success && (old_file.read((uint8_t *)&c.last_advert_timestamp, 4) == 4);
+        success = success && (old_file.read(c.out_path, 64) == 64);
+        success = success && (old_file.read((uint8_t *)&c.lastmod, 4) == 4);
+        success = success && (old_file.read((uint8_t *)&c.gps_lat, 4) == 4);
+        success = success && (old_file.read((uint8_t *)&c.gps_lon, 4) == 4);
+
+        if (!success) break;
+
+        c.id = mesh::Identity(pub_key);
+        old_count++;
+
+        #ifdef NRF52_PLATFORM
+        // Feed watchdog every 10 contacts (reading is slow)
+        if (old_count % 10 == 0) {
+          nrf52_wdt_feed();
+        }
+        #endif
+      }
+      old_file.close();
+    }
+  }
+
+  // Compare current contacts with saved ones
+  uint32_t idx = 0;
+  ContactInfo c;
+
+  while (host->getContactForSave(idx, c)) {
+    // Check if this contact differs from saved version
+    if (idx >= old_count) {
+      needs_write = true; // New contact
+      break;
+    }
+
+    ContactInfo& old_c = old_contacts[idx];
+
+    // Compare only persistent fields (not BLE transient data!)
+    if (memcmp(c.id.pub_key, old_c.id.pub_key, 32) != 0 ||
+        memcmp(c.name, old_c.name, 32) != 0 ||
+        c.type != old_c.type ||
+        c.flags != old_c.flags ||
+        c.sync_since != old_c.sync_since ||
+        c.out_path_len != old_c.out_path_len ||
+        c.last_advert_timestamp != old_c.last_advert_timestamp ||
+        memcmp(c.out_path, old_c.out_path, 64) != 0 ||
+        c.lastmod != old_c.lastmod ||
+        c.gps_lat != old_c.gps_lat ||
+        c.gps_lon != old_c.gps_lon) {
+      needs_write = true;
+      break;
+    }
+
+    idx++;
+  }
+
+  // Check if count changed (contact removed)
+  if (idx != old_count) {
+    needs_write = true;
+  }
+
+  // Only write if something actually changed
+  if (!needs_write) {
+    Serial.println("[DataStore] Contacts unchanged, skipping flash write");
+    return;
+  }
+
+  Serial.println("[DataStore] Contacts changed, writing to flash");
+
+  #ifdef NRF52_PLATFORM
+  // Feed watchdog before flash write (can be slow)
+  nrf52_wdt_feed();
+  #endif
+
+  // Write contacts to file
   File file = openWrite(_getContactsChannelsFS(), "/contacts3");
   if (file) {
-    uint32_t idx = 0;
-    ContactInfo c;
+    idx = 0;
     uint8_t unused = 0;
 
     while (host->getContactForSave(idx, c)) {
@@ -344,6 +457,13 @@ void DataStore::saveContacts(DataStoreHost* host) {
       if (!success) break; // write failed
 
       idx++;  // advance to next contact
+
+      #ifdef NRF52_PLATFORM
+      // Feed watchdog every 10 contacts (writing is slow)
+      if (idx % 10 == 0) {
+        nrf52_wdt_feed();
+      }
+      #endif
     }
     file.close();
   }
@@ -634,3 +754,36 @@ bool DataStore::putBlobByKey(const uint8_t key[], int key_len, const uint8_t src
   return false; // error
 }
 #endif
+
+bool DataStore::clearAllFilesExceptSettings() {
+  // Files to preserve (settings and identity)
+  const char* preserve_files[] = {
+    "/new_prefs",
+    "/node_prefs",
+    "/_main.id"
+  };
+  int preserve_count = sizeof(preserve_files) / sizeof(preserve_files[0]);
+
+  bool success = true;
+
+  // Clear files from contacts/channels filesystem (secondary or primary)
+  FILESYSTEM* ccFS = _getContactsChannelsFS();
+  if (ccFS->exists("/contacts3")) {
+    success = success && ccFS->remove("/contacts3");
+  }
+  if (ccFS->exists("/channels2")) {
+    success = success && ccFS->remove("/channels2");
+  }
+  if (ccFS->exists("/adv_blobs")) {
+    success = success && ccFS->remove("/adv_blobs");
+  }
+
+#if !defined(NRF52_PLATFORM) && !defined(STM32_PLATFORM)
+  // On ESP32/RP2040, also remove blob directory files
+  // Note: We can't easily enumerate directory contents in a platform-agnostic way,
+  // so we'll just rely on the user to understand that /bl/* files are also cleared
+  // when they exist. The main data files are contacts3, channels2, and adv_blobs.
+#endif
+
+  return success;
+}

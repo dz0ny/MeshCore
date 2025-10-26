@@ -2,6 +2,27 @@
 #include <Mesh.h>
 #include "MyMesh.h"
 
+#ifdef NRF52_PLATFORM
+  #include <helpers/nrf52/nrf52_watchdog.h>
+
+  // NRF52 SoftDevice error handler
+  // This is called when the BLE stack encounters a fatal error
+  extern "C" void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info) {
+    Serial.printf("\n\n!!! NRF52 FATAL ERROR !!!\n");
+    Serial.printf("Error ID: 0x%08X\n", id);
+    Serial.printf("Program Counter: 0x%08X\n", pc);
+    Serial.printf("Info: 0x%08X\n", info);
+    Serial.printf("System will reset in 3 seconds...\n");
+    Serial.flush();
+
+    // Give time for serial output to complete
+    delay(3000);
+
+    // Force watchdog reset (cleaner than NVIC_SystemReset)
+    nrf52_wdt_panic("SoftDevice error");
+  }
+#endif
+
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
   uint32_t n = 0;
@@ -108,6 +129,9 @@ void halt() {
 void setup() {
   Serial.begin(115200);
 
+  // NOTE: Watchdog init moved to AFTER critical initialization
+  // to avoid timeout during slow flash/radio setup
+
   board.begin();
 
 #ifdef DISPLAY_CLASS
@@ -153,6 +177,11 @@ void setup() {
 #ifdef BLE_PIN_CODE
   char dev_name[32+16];
   sprintf(dev_name, "%s%s", BLE_NAME_PREFIX, the_mesh.getNodeName());
+
+  // Debug: Log the constructed BLE name
+  MESH_DEBUG_PRINTLN("main: Constructed BLE name: '%s' (prefix='%s', node='%s')",
+                     dev_name, BLE_NAME_PREFIX, the_mesh.getNodeName());
+
   serial_interface.begin(dev_name, the_mesh.getBLEPin());
 #else
   serial_interface.begin(Serial);
@@ -234,9 +263,24 @@ void setup() {
 #ifdef DISPLAY_CLASS
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved
 #endif
+
+#ifdef NRF52_PLATFORM
+  // Initialize watchdog timer AFTER all critical setup is complete
+  // Initialization can take up to 15s (QSPI flash, radio, filesystem)
+  // Once running, 5s timeout is strict enough to catch freezes
+  // NOTE: Watchdog CANNOT be reconfigured once started!
+  nrf52_wdt_init(5);
+  Serial.println("NRF52: Watchdog initialized (5s timeout) - initialization complete");
+  Serial.flush();
+#endif
 }
 
 void loop() {
+#ifdef NRF52_PLATFORM
+  // Feed watchdog every loop iteration to prevent reset
+  nrf52_wdt_feed();
+#endif
+
   the_mesh.loop();
   sensors.loop();
 #ifdef DISPLAY_CLASS

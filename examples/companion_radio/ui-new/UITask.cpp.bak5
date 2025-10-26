@@ -1,50 +1,14 @@
 #include "UITask.h"
 #include <helpers/TxtDataHelpers.h>
-#include <helpers/ArduinoHelpers.h>
 #include "../MyMesh.h"
 #include "target.h"
 #include <math.h>
 
 extern MyMesh the_mesh;
 
-// Convert number to Roman numerals (up to 99) in lowercase
-static void toRomanNumeral(int num, char* buffer, size_t bufferSize) {
-    if (num <= 0 || num > 99) {
-        snprintf(buffer, bufferSize, "?");
-        return;
-    }
-
-    buffer[0] = '\0';
-    int pos = 0;
-
-    // Tens place
-    int tens = num / 10;
-    if (tens == 9) {
-        buffer[pos++] = 'x'; buffer[pos++] = 'c'; // xc = 90
-    } else if (tens >= 5) {
-        buffer[pos++] = 'l'; // l = 50
-        for (int i = 0; i < tens - 5; i++) buffer[pos++] = 'x';
-    } else if (tens == 4) {
-        buffer[pos++] = 'x'; buffer[pos++] = 'l'; // xl = 40
-    } else {
-        for (int i = 0; i < tens; i++) buffer[pos++] = 'x';
-    }
-
-    // Ones place
-    int ones = num % 10;
-    if (ones == 9) {
-        buffer[pos++] = 'i'; buffer[pos++] = 'x'; // ix = 9
-    } else if (ones >= 5) {
-        buffer[pos++] = 'v'; // v = 5
-        for (int i = 0; i < ones - 5; i++) buffer[pos++] = 'i';
-    } else if (ones == 4) {
-        buffer[pos++] = 'i'; buffer[pos++] = 'v'; // iv = 4
-    } else {
-        for (int i = 0; i < ones; i++) buffer[pos++] = 'i';
-    }
-
-    buffer[pos] = '\0';
-}
+#ifdef MESHTASTIC_INCLUDE_INKHUD
+#include <helpers/ui/BatteryIconApplet.h>
+#endif
 
 #ifndef AUTO_OFF_MILLIS
   #define AUTO_OFF_MILLIS     15000   // 15 seconds
@@ -148,111 +112,52 @@ private:
   static constexpr int SCREEN_TOP_MARGIN = 6;  // Header height (18px) + separator + spacing
   static constexpr int SCREEN_BOTTOM_MARGIN = 6  ; // Footer height + spacing
 
-  // Nearby count caching (update every 60 seconds)
-  int cached_nearby_count = 0;
-  unsigned long next_nearby_refresh = 0;
-
-  // Battery caching (update every 5 minutes)
-  int cached_battery_percentage = 0;
-  uint16_t cached_battery_millivolts = 0;
-  unsigned long next_battery_refresh = 0;
-
-  // Cache computed display values
-  int cached_display_width = 0;
-  int cached_display_height = 0;
-  int cached_center_x = 0;
-
 
   void renderBatteryIndicator(DisplayDriver& display, uint16_t batteryMilliVolts) {
-    // Update battery percentage only every 5 minutes or if voltage changed significantly
-    if (millis() > next_battery_refresh || abs((int)batteryMilliVolts - (int)cached_battery_millivolts) > 100) {
-      const int minMilliVolts = 3000; // Minimum voltage (e.g., 3.0V)
-      const int maxMilliVolts = 4200; // Maximum voltage (e.g., 4.2V)
-      cached_battery_percentage = ((batteryMilliVolts - minMilliVolts) * 100) / (maxMilliVolts - minMilliVolts);
-      if (cached_battery_percentage < 0) cached_battery_percentage = 0; // Clamp to 0%
-      if (cached_battery_percentage > 100) cached_battery_percentage = 100; // Clamp to 100%
-      cached_battery_millivolts = batteryMilliVolts;
-      next_battery_refresh = millis() + 300000; // Refresh every 5 minutes (300 seconds)
+#ifdef MESHTASTIC_INCLUDE_INKHUD
+    // Use the new InkHUD BatteryIconApplet for ink/e-paper displays
+    static InkHUD::BatteryIconApplet* batteryIcon = nullptr;
+
+    if (batteryIcon == nullptr) {
+      // Create battery icon positioned at top
+      batteryIcon = new InkHUD::BatteryIconApplet(
+        &display,
+        display.width() - 40 - 5,  // x: 5 pixels from right edge
+        0,                          // y: at top with screen name
+        40,                         // width
+        20                          // height
+      );
     }
 
-    // Battery icon - positioned at top
-    const int batteryWidth = 32;
-    const int batteryHeight = 14;
-    const int batteryX = display.width() - batteryWidth - 5;
-    const int batteryY = 0;
+    // Update and render
+    batteryIcon->updateBatteryMilliVolts(batteryMilliVolts);
+    batteryIcon->render();
+#else
+    // Original battery rendering for non-InkHUD displays
+    // Convert millivolts to percentage
+    const int minMilliVolts = 3000; // Minimum voltage (e.g., 3.0V)
+    const int maxMilliVolts = 4200; // Maximum voltage (e.g., 4.2V)
+    int batteryPercentage = ((batteryMilliVolts - minMilliVolts) * 100) / (maxMilliVolts - minMilliVolts);
+    if (batteryPercentage < 0) batteryPercentage = 0; // Clamp to 0%
+    if (batteryPercentage > 100) batteryPercentage = 100; // Clamp to 100%
 
-    display.setColor(DisplayDriver::GREEN);
-    display.drawRect(batteryX, batteryY, batteryWidth, batteryHeight);
-    display.fillRect(batteryX + batteryWidth, batteryY + (batteryHeight / 4), 3, batteryHeight / 2);
-    int fillWidth = (cached_battery_percentage * (batteryWidth - 4)) / 100;
-    display.fillRect(batteryX + 2, batteryY + 2, fillWidth, batteryHeight - 4);
-  }
-
-  void renderNearbyCountWidget(DisplayDriver& display) {
-
-    #if BLE_ADVERT == 0
-    return;  // Skip rendering nearby count when BLE advertising is disabled
-    #endif
-
-    // Update nearby count only every 60 seconds
-    if (millis() > next_nearby_refresh) {
-      AdvertPath recent[UI_RECENT_LIST_SIZE];
-      the_mesh.getRecentlyHeard(recent, UI_RECENT_LIST_SIZE);
-
-      cached_nearby_count = 0;
-      for (int i = 0; i < UI_RECENT_LIST_SIZE; i++) {
-        if (recent[i].name[0] != 0) cached_nearby_count++;
-      }
-      next_nearby_refresh = millis() + 60000; // Refresh every 60 seconds
-    }
-
-    // Nearby count widget (left of battery)
-    const int batteryWidth = 32;
-    const int batteryX = display.width() - batteryWidth - 5;
-
-    const int nearbyWidth = 30;
-    const int nearbyHeight = 14;
-    const int nearbyX = batteryX - nearbyWidth - 5;  // 5px gap from battery
-    const int nearbyY = 0;
-
-    // Draw rectangle border
-    display.setColor(DisplayDriver::GREEN);
-    display.drawRect(nearbyX, nearbyY, nearbyWidth, nearbyHeight);
-
-    // Internal padding
-    const int padding = 2;
-    const int innerX = nearbyX + padding;
-    const int innerY = nearbyY + padding;
-
-    // Draw globe icon (simplified mesh icon - smaller)
-    const int iconSize = 8;
-    const int iconX = innerX + 1;
-    const int iconY = innerY + (nearbyHeight - 2 * padding - iconSize) / 2;
-    const int centerX = iconX + iconSize / 2;
-    const int centerY = iconY + iconSize / 2;
-
-    display.setColor(DisplayDriver::GREEN);
-    // Draw circle outline (simplified)
-    display.drawRect(iconX, iconY, iconSize, iconSize);
-    // Draw cross lines
-    display.fillRect(centerX, iconY, 1, iconSize);  // Vertical line
-    display.fillRect(iconX, centerY, iconSize, 1);  // Horizontal line
-
-    // Draw count as Roman numerals to the right of icon
-    char countStr[8];
-    if (cached_nearby_count == 0) {
-      snprintf(countStr, sizeof(countStr), "-");
-    } else {
-      toRomanNumeral(cached_nearby_count, countStr, sizeof(countStr));
-    }
-
-    display.setTextSize(1);
+    // battery icon - positioned at top
+    int iconWidth = 32;
+    int iconHeight = 14;
+    int iconX = display.width() - iconWidth - 5; // Position the icon near the top-right corner
+    int iconY = 0;  // At top with screen name
     display.setColor(DisplayDriver::GREEN);
 
-    int textX = iconX + iconSize + 2;
-    int textY = innerY + (nearbyHeight - 2 * padding - display.getTextHeight(countStr)) / 2;
+    // battery outline
+    display.drawRect(iconX, iconY, iconWidth, iconHeight);
 
-    display.drawTextLeftAlign(textX, textY, countStr);
+    // battery "cap"
+    display.fillRect(iconX + iconWidth, iconY + (iconHeight / 4), 3, iconHeight / 2);
+
+    // fill the battery based on the percentage
+    int fillWidth = (batteryPercentage * (iconWidth - 4)) / 100;
+    display.fillRect(iconX + 2, iconY + 2, fillWidth, iconHeight - 4);
+#endif
   }
 
   CayenneLPP sensors_lpp;
@@ -296,26 +201,21 @@ public:
   }
 
   int render(DisplayDriver& display) override {
-    // Cache display dimensions on first render
-    if (cached_display_width == 0) {
-      cached_display_width = display.width();
-      cached_display_height = display.height();
-      cached_center_x = cached_display_width / 2;
-    }
-
     char tmp[80];
 
     // Screen name (centered at the very top) - use small font (size 0)
-    // Skip rendering empty screen name to save cycles
-    // const char* screen_name = "";
-    // display.setTextSize(0);
-    // display.setColor(DisplayDriver::YELLOW);
-    // display.drawTextCentered(cached_center_x, 0, screen_name);
+    const char* screen_name = "";
+  
+
+    // Draw screen name centered at the very top with smallest font
+    display.setTextSize(0);  // Use smallest font (7pt for e-ink, 5px for OLED)
+    display.setColor(DisplayDriver::YELLOW);
+    display.drawTextCentered(display.width() / 2, 0, screen_name);
 
     // node name - back to normal size
     display.setTextSize(1);
     display.setColor(DisplayDriver::GREEN);
-    static char filtered_name[64]; // Use static to avoid stack allocation every frame
+    char filtered_name[sizeof(_node_prefs->node_name)];
     display.translateUTF8ToBlocks(filtered_name, _node_prefs->node_name, sizeof(filtered_name));
     display.setCursor(0, 0);
     display.print(filtered_name);
@@ -323,52 +223,53 @@ public:
     // battery voltage
     renderBatteryIndicator(display, _task->getBattMilliVolts());
 
-    // nearby devices count - DISABLED (removed from top bar)
-    // renderNearbyCountWidget(display);
-
     // curr page indicator
-    static const int indicator_y = 14;
-    int x = cached_center_x - 5 * (HomePage::Count-1);
+    int y = 14;
+    int x = display.width() / 2 - 5 * (HomePage::Count-1);
     for (uint8_t i = 0; i < HomePage::Count; i++, x += 10) {
       if (i == _page) {
-        display.fillRect(x-1, indicator_y-1, 3, 3);
+        display.fillRect(x-1, y-1, 3, 3);
       } else {
-        display.fillRect(x, indicator_y, 1, 1);
+        display.fillRect(x, y, 1, 1);
       }
     }
 
     // Draw dotted line separator between header and content
-    static const int separator_y = 18;
+    int separator_y = 18;
     display.setColor(DisplayDriver::LIGHT);
-    for (int dx = 0; dx < cached_display_width; dx += 3) {
+    for (int dx = 0; dx < display.width(); dx += 3) {
       display.fillRect(dx, separator_y, 1, 1);
     }
 
-    // Pre-calculate commonly used values for page content
-    int available_height = cached_display_height - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
-    int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
-
     if (_page == HomePage::FIRST) {
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
 
       if (_task->hasConnection()) {
         display.setColor(DisplayDriver::GREEN);
         display.setTextSize(1);
-        display.drawTextCentered(cached_center_x, centerY, "< Connected >");
+        display.drawTextCentered(display.width() / 2, centerY, "< Connected >");
       } else if (the_mesh.getBLEPin() != 0) { // BT pin
         display.setColor(DisplayDriver::RED);
         display.setTextSize(2);
         sprintf(tmp, "Pin:%d", the_mesh.getBLEPin());
-        display.drawTextCentered(cached_center_x, centerY, tmp);
+        display.drawTextCentered(display.width() / 2, centerY, tmp);
       }
     } else if (_page == HomePage::SETTINGS) {
       // Settings page - show big "Settings" text similar to Messages
       display.setColor(DisplayDriver::GREEN);
       display.setTextSize(2);
-      display.drawTextCentered(cached_center_x, centerY - 10, "Settings");
+
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+
+      // Show "Settings" text
+      display.setTextSize(2);
+      display.drawTextCentered(display.width() / 2, centerY - 10, "Settings");
 
       display.setTextSize(1);
       display.setColor(DisplayDriver::LIGHT);
-      display.drawTextCentered(cached_center_x, centerY + 10, "Press to view");
+      display.drawTextCentered(display.width() / 2, centerY + 10, "Press to view");
     } else if (_page == HomePage::MESSAGES) {
       // Messages page - show message count and preview
       display.setColor(DisplayDriver::GREEN);
@@ -377,146 +278,100 @@ public:
       uint8_t msg_count = _task->getMessagesScreen()->getUnreadCount();
       uint8_t total_count = the_mesh.getMessageStore()->getCount();
 
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+
       if (total_count == 0) {
         // No messages
         display.setTextSize(2);
-        display.drawTextCentered(cached_center_x, centerY - 10, "No Messages");
+        display.drawTextCentered(display.width() / 2, centerY - 10, "No Messages");
         display.setTextSize(1);
-        display.drawTextCentered(cached_center_x, centerY + 10, "Press to view");
+        display.drawTextCentered(display.width() / 2, centerY + 10, "Press to view");
       } else {
-        // Show message count - use static buffer
+        // Show message count
         display.setTextSize(2);
-        static char buf[32];
+        char buf[32];
         if (msg_count > 0) {
           snprintf(buf, sizeof(buf), "%d unread", msg_count);
-          display.drawTextCentered(cached_center_x, centerY - 10, buf);
+          display.drawTextCentered(display.width() / 2, centerY - 10, buf);
         } else {
           snprintf(buf, sizeof(buf), "%d total", total_count);
-          display.drawTextCentered(cached_center_x, centerY - 10, buf);
+          display.drawTextCentered(display.width() / 2, centerY - 10, buf);
         }
 
         display.setTextSize(1);
         display.setColor(DisplayDriver::LIGHT);
-        display.drawTextCentered(cached_center_x, centerY + 10, "Press to view");
+        display.drawTextCentered(display.width() / 2, centerY + 10, "Press to view");
       }
     } else if (_page == HomePage::NEARBY) {
       // Nearby page - show preview similar to Messages/Settings
-      // Reuse cached_nearby_count instead of querying again
+      the_mesh.getRecentlyHeard(recent, UI_RECENT_LIST_SIZE);
       display.setColor(DisplayDriver::GREEN);
 
-      if (cached_nearby_count == 0) {
+      // Count nearby nodes
+      int nearby_count = 0;
+      for (int i = 0; i < UI_RECENT_LIST_SIZE; i++) {
+        if (recent[i].name[0] != 0) nearby_count++;
+      }
+
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+
+      if (nearby_count == 0) {
         // No nearby nodes
         display.setTextSize(2);
-        display.drawTextCentered(cached_center_x, centerY - 10, "No Nodes");
+        display.drawTextCentered(display.width() / 2, centerY - 10, "No Nodes");
         display.setTextSize(1);
         display.setColor(DisplayDriver::LIGHT);
-        display.drawTextCentered(cached_center_x, centerY + 10, "Press to view");
+        display.drawTextCentered(display.width() / 2, centerY + 10, "Press to view");
       } else {
-        // Show count - use static buffer to avoid stack allocation every frame
+        // Show count
         display.setTextSize(2);
-        static char count_buf[32];
-        snprintf(count_buf, sizeof(count_buf), "%d nearby", cached_nearby_count);
-        display.drawTextCentered(cached_center_x, centerY - 10, count_buf);
+        char count_buf[32];
+        snprintf(count_buf, sizeof(count_buf), "%d nearby", nearby_count);
+        display.drawTextCentered(display.width() / 2, centerY - 10, count_buf);
 
         display.setTextSize(1);
         display.setColor(DisplayDriver::LIGHT);
-        display.drawTextCentered(cached_center_x, centerY + 10, "Press to view");
+        display.drawTextCentered(display.width() / 2, centerY + 10, "Press to view");
       }
     } else if (_page == HomePage::ADVERT) {
-      // ADVERT page - show public key hash, location, and status
-      display.setColor(DisplayDriver::LIGHT);
-      int line_height = display.getTextHeight("A");
-      int line_spacing = line_height + 2;
-
-      // Calculate vertical centering for content
-      int num_lines = 4; // pubkey, lat, lon, status
-      int total_height = (num_lines * line_height) + ((num_lines - 1) * 2);
-      int y = SCREEN_TOP_MARGIN + ((available_height - total_height) / 2) + (line_height / 2);
-
-      char buf[50];
-
-      // Public key hash (first 8 hex chars)
-      const uint8_t* pubkey = the_mesh.getMyPubKey();
-      char pubkey_hex[10];
-      mesh::Utils::toHex(pubkey_hex, pubkey, 4);
       display.setColor(DisplayDriver::GREEN);
-      display.drawTextLeftAlign(0, y, "id");
-      display.setColor(DisplayDriver::LIGHT);
-      display.drawTextRightAlign(cached_display_width - 1, y, pubkey_hex);
-
-      y += line_spacing;
-
-      // Location information
-      LocationProvider* nmea = _sensors->getLocationProvider();
-      bool has_gps_fix = nmea != NULL && nmea->isValid();
-
-      // Latitude
-      display.setColor(DisplayDriver::GREEN);
-      display.drawTextLeftAlign(0, y, "lat");
-      display.setColor(DisplayDriver::LIGHT);
-      if (has_gps_fix) {
-        sprintf(buf, "%.5f", nmea->getLatitude() / 1000000.);
-        display.drawTextRightAlign(cached_display_width - 1, y, buf);
-      } else if (_sensors->node_lat != 0) {
-        // Show configured latitude
-        sprintf(buf, "%.5f", _sensors->node_lat);
-        display.drawTextRightAlign(cached_display_width - 1, y, buf);
-      } else {
-        display.drawTextRightAlign(cached_display_width - 1, y, "-");
-      }
-
-      y += line_spacing;
-
-      // Longitude
-      display.setColor(DisplayDriver::GREEN);
-      display.drawTextLeftAlign(0, y, "lon");
-      display.setColor(DisplayDriver::LIGHT);
-      if (has_gps_fix) {
-        sprintf(buf, "%.5f", nmea->getLongitude() / 1000000.);
-        display.drawTextRightAlign(cached_display_width - 1, y, buf);
-      } else if (_sensors->node_lon != 0) {
-        // Show configured longitude
-        sprintf(buf, "%.5f", _sensors->node_lon);
-        display.drawTextRightAlign(cached_display_width - 1, y, buf);
-      } else {
-        display.drawTextRightAlign(cached_display_width - 1, y, "-");
-      }
-
-      y += line_spacing;
-
-      // Location sharing status
-      display.setColor(DisplayDriver::GREEN);
-      display.drawTextLeftAlign(0, y, "share");
-      display.setColor(DisplayDriver::LIGHT);
-      bool loc_sharing = _node_prefs->gps_loc_advert_enabled != 0;
-      display.drawTextRightAlign(cached_display_width - 1, y, loc_sharing ? "ON" : "OFF");
-
-      // Show instruction at bottom
-      y += line_spacing + 4;
-      display.setColor(DisplayDriver::LIGHT);
-      display.drawTextCentered(cached_center_x, y, PRESS_LABEL " to send");
+      int text_height = display.getTextHeight("A");
+      // Total content: 32px icon + 4px gap + text height
+      int total_height = 32 + 4 + text_height;
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + ((available_height - total_height) / 2);
+      display.drawXbm((display.width() - 32) / 2, centerY, advert_icon, 32, 32);
+      display.drawTextCentered(display.width() / 2, centerY + 32 + 4 + text_height, "advert: " PRESS_LABEL);
     } else if (_page == HomePage::REPORTS) {
       // Reports page - show preview
       display.setColor(DisplayDriver::GREEN);
+
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
+      int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+
       display.setTextSize(2);
-      display.drawTextCentered(cached_center_x, centerY - 10, "Reports");
+      display.drawTextCentered(display.width() / 2, centerY - 10, "Reports");
 
       display.setTextSize(1);
       display.setColor(DisplayDriver::LIGHT);
-      display.drawTextCentered(cached_center_x, centerY + 10, "Press to view");
+      display.drawTextCentered(display.width() / 2, centerY + 10, "Press to view");
     } else if (_page == HomePage::SHUTDOWN) {
       display.setColor(DisplayDriver::GREEN);
       display.setTextSize(1);
+      int text_height = display.getTextHeight("A");
+      int available_height = display.height() - SCREEN_TOP_MARGIN - SCREEN_BOTTOM_MARGIN;
 
       if (_shutdown_init) {
-        display.drawTextCentered(cached_center_x, centerY, "hibernating...");
+        int centerY = SCREEN_TOP_MARGIN + (available_height / 2);
+        display.drawTextCentered(display.width() / 2, centerY, "hibernating...");
       } else {
         // Total content: 32px icon + 4px gap + text height
-        static const int text_height = 8;
-        static const int total_height = 32 + 4 + text_height;
-        int icon_centerY = SCREEN_TOP_MARGIN + ((available_height - total_height) / 2);
-        display.drawXbm((cached_display_width - 32) / 2, icon_centerY, power_icon, 32, 32);
-        display.drawTextCentered(cached_center_x, icon_centerY + 32 + 4 + text_height, "hibernate:" PRESS_LABEL);
+        int total_height = 32 + 4 + text_height;
+        int centerY = SCREEN_TOP_MARGIN + ((available_height - total_height) / 2);
+        display.drawXbm((display.width() - 32) / 2, centerY, power_icon, 32, 32);
+        display.drawTextCentered(display.width() / 2, centerY + 32 + 4 + text_height, "hibernate:" PRESS_LABEL);
       }
     }
     return 5000;   // next render after 5000 ms

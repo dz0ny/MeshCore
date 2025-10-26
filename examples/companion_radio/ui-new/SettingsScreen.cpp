@@ -1,11 +1,47 @@
 #include "SettingsScreen.h"
 #include "UITask.h"
+#include "UIHelpers.h"
 #include "../MyMesh.h"
 
 extern MyMesh the_mesh;
 
 static constexpr int SCREEN_TOP_MARGIN = 20;
-static constexpr int SCREEN_BOTTOM_MARGIN = 18;
+static constexpr int SCREEN_BOTTOM_MARGIN = 5;
+
+// Macro to draw thin dotted border around selected setting
+#define DRAW_SELECTION_BORDER(is_selected, y_pos, spacing) \
+  if (is_selected) { \
+    display.setColor(DisplayDriver::LIGHT); \
+    int border_x = 1, border_y = (y_pos), border_w = display.width() - 2, border_h = (spacing) + 2; \
+    for (int x = border_x; x < border_x + border_w; x += 3) { \
+      display.fillRect(x, border_y, 1, 1); \
+    } \
+    for (int x = border_x; x < border_x + border_w; x += 3) { \
+      display.fillRect(x, border_y + border_h - 1, 1, 1); \
+    } \
+    for (int y = border_y; y < border_y + border_h; y += 3) { \
+      display.fillRect(border_x, y, 1, 1); \
+    } \
+    for (int y = border_y; y < border_y + border_h; y += 3) { \
+      display.fillRect(border_x + border_w - 1, y, 1, 1); \
+    } \
+    display.setColor(DisplayDriver::GREEN); \
+  }
+
+// Macro to draw section header (yellow with *)
+#define DRAW_SECTION_HEADER(text, y_pos, spacing) \
+  display.setColor(DisplayDriver::YELLOW); \
+  display.setTextSize(1); \
+  display.drawTextLeftAlign(2, y_pos, text); \
+  display.setColor(DisplayDriver::GREEN); \
+  y_pos += spacing;
+
+// Helper function to draw a setting item
+static void drawSetting(DisplayDriver& display, int& y, int line_spacing, bool is_selected, const char* text) {
+  DRAW_SELECTION_BORDER(is_selected, y, line_spacing);
+  display.drawTextLeftAlign(5, y, text);
+  y += line_spacing;
+}
 
 SettingsScreen::SettingsScreen(UITask* task, SensorManager* sensors, NodePrefs* node_prefs)
   : _task(task),
@@ -25,16 +61,7 @@ int SettingsScreen::render(DisplayDriver& display) {
   display.startFrame();
 
   // Draw header
-  display.setTextSize(1);
-  display.setColor(DisplayDriver::LIGHT);
-  display.setCursor(0, 0);
-  display.print("Settings");
-
-  // Draw separator line (below header text)
-  display.setColor(DisplayDriver::LIGHT);
-  for (int dx = 0; dx < display.width(); dx += 3) {
-    display.fillRect(dx, 20, 1, 1);
-  }
+  DRAW_SCREEN_HEADER("Settings", _task);
 
   display.setColor(DisplayDriver::GREEN);
   display.setTextSize(1);
@@ -42,8 +69,8 @@ int SettingsScreen::render(DisplayDriver& display) {
   int line_spacing = line_height + 6;
 
   // Count available settings (including headers as non-selectable items)
-  int num_settings = 6;  // BLE, Radio Stats, Buzzer, Key Press Buzzer, Telemetry, Advert Loc, Debug Keys
-  int num_headers = 4;   // Connectivity, Sound, Privacy, Misc
+  int num_settings = 6;  // BLE, Buzzer, Key Press Buzzer, Telemetry, Advert Loc, Clear Files
+  int num_headers = 4;   // Connectivity, Sound, Privacy, Maintenance
 #if ENV_INCLUDE_GPS == 1
   if (_sensors->getLocationProvider() != NULL) {
     num_settings += 1; // GPS toggle
@@ -70,10 +97,6 @@ int SettingsScreen::render(DisplayDriver& display) {
   selected_item_index++; // BLE
   setting_counter++;
 
-  if (setting_counter == _selected_setting) goto found_selected;
-  selected_item_index++; // Radio Stats
-  setting_counter++;
-
   selected_item_index++; // Sound header
 
   if (setting_counter == _selected_setting) goto found_selected;
@@ -91,13 +114,6 @@ int SettingsScreen::render(DisplayDriver& display) {
     if (setting_counter == _selected_setting) goto found_selected;
     selected_item_index++; // GPS Toggle
     setting_counter++;
-
-    // GPS info items (non-selectable display items)
-    selected_item_index++; // GPS Status
-    selected_item_index++; // GPS Lat
-    selected_item_index++; // GPS Lon
-    selected_item_index++; // GPS Alt
-    selected_item_index++; // GPS Acc
 
     selected_item_index++; // Location Advert header
 
@@ -133,10 +149,11 @@ int SettingsScreen::render(DisplayDriver& display) {
   selected_item_index++; // Advertise Location
   setting_counter++;
 
-  selected_item_index++; // Misc header
+  selected_item_index++; // Maintenance header
 
   if (setting_counter == _selected_setting) goto found_selected;
-  selected_item_index++; // Debug Keys
+  selected_item_index++; // Clear Files
+  setting_counter++;
 
 found_selected:
 
@@ -155,40 +172,22 @@ found_selected:
 
   // === CONNECTIVITY HEADER ===
   if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-    display.setColor(DisplayDriver::YELLOW);
-    display.setTextSize(1);
-    display.drawTextLeftAlign(2, y, "* Connectivity");
-    display.setColor(DisplayDriver::GREEN);
-    y += line_spacing;
+    DRAW_SECTION_HEADER("* Connectivity", y, line_spacing);
   }
   curr_item++;
 
   // BLE setting
   if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
     bool ble_on = _task->isSerialEnabled();
-    sprintf(buf, "%s Bluetooth: %s", curr_setting == _selected_setting ? ">" : " ", ble_on ? "ON" : "OFF");
-    display.drawTextLeftAlign(5, y, buf);
-    y += line_spacing;
-  }
-  curr_item++;
-  curr_setting++;
-
-  // Radio Stats setting
-  if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-    sprintf(buf, "%s Show Radio Stats", curr_setting == _selected_setting ? ">" : " ");
-    display.drawTextLeftAlign(5, y, buf);
-    y += line_spacing;
+    sprintf(buf, "  Bluetooth: %s", ble_on ? "ON" : "OFF");
+    drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
   }
   curr_item++;
   curr_setting++;
 
   // === SOUND HEADER ===
   if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-    display.setColor(DisplayDriver::YELLOW);
-    display.setTextSize(1);
-    display.drawTextLeftAlign(2, y, "* Sound");
-    display.setColor(DisplayDriver::GREEN);
-    y += line_spacing;
+    DRAW_SECTION_HEADER("* Sound", y, line_spacing);
   }
   curr_item++;
 
@@ -196,12 +195,11 @@ found_selected:
   if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
 #ifdef PIN_BUZZER
     bool buzzer_on = _task->getBuzzerState();
-    sprintf(buf, "%s Buzzer: %s", curr_setting == _selected_setting ? ">" : " ", buzzer_on ? "ON" : "OFF");
+    sprintf(buf, "  Buzzer: %s", buzzer_on ? "ON" : "OFF");
 #else
-    sprintf(buf, "%s Buzzer: N/A", curr_setting == _selected_setting ? ">" : " ");
+    sprintf(buf, "  Buzzer: N/A");
 #endif
-    display.drawTextLeftAlign(5, y, buf);
-    y += line_spacing;
+    drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
   }
   curr_item++;
   curr_setting++;
@@ -210,13 +208,12 @@ found_selected:
   if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
 #ifdef PIN_BUZZER
     bool key_press_on = _node_prefs->buzzer_key_press;
-    sprintf(buf, "%s Key Press Buzzer: %s", curr_setting == _selected_setting ? ">" : " ",
+    sprintf(buf, "  Key Press Buzzer: %s",
             key_press_on ? "ON" : "OFF");
 #else
-    sprintf(buf, "%s Key Press Buzzer: N/A", curr_setting == _selected_setting ? ">" : " ");
+    sprintf(buf, "  Key Press Buzzer: N/A");
 #endif
-    display.drawTextLeftAlign(5, y, buf);
-    y += line_spacing;
+    drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
   }
   curr_item++;
   curr_setting++;
@@ -225,145 +222,49 @@ found_selected:
   if (_sensors->getLocationProvider() != NULL) {
     // === GPS HEADER ===
     if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      display.setColor(DisplayDriver::YELLOW);
-      display.setTextSize(1);
-      display.drawTextLeftAlign(2, y, "* GPS");
-      display.setColor(DisplayDriver::GREEN);
-      y += line_spacing;
+      DRAW_SECTION_HEADER("* GPS", y, line_spacing);
     }
     curr_item++;
 
     // GPS Toggle
     if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
       bool gps_on = _task->getGPSState();
-      sprintf(buf, "%s GPS: %s", curr_setting == _selected_setting ? ">" : " ", gps_on ? "ON" : "OFF");
-      display.drawTextLeftAlign(5, y, buf);
-      y += line_spacing;
+      sprintf(buf, "  GPS: %s", gps_on ? "ON" : "OFF");
+      drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
     }
     curr_item++;
     curr_setting++;
 
-    // GPS Info items (only show if GPS is ON)
-    LocationProvider* nmea = _sensors->getLocationProvider();
-    bool gps_on = _task->getGPSState();
-
-    // GPS Status
-    if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      if (gps_on && nmea != NULL) {
-        sprintf(buf, "   %s", nmea->isValid() ? "Status: FIX" : "Status: SEARCH");
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, buf);
-        display.setColor(DisplayDriver::GREEN);
-      } else {
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, "   Status: OFF");
-        display.setColor(DisplayDriver::GREEN);
-      }
-      y += line_spacing;
-    }
-    curr_item++;
-
-    // GPS Lat
-    if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      if (gps_on && nmea != NULL && nmea->isValid()) {
-        sprintf(buf, "   Lat: %.5f", nmea->getLatitude() / 1000000.0);
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, buf);
-        display.setColor(DisplayDriver::GREEN);
-      } else {
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, "   Lat: --");
-        display.setColor(DisplayDriver::GREEN);
-      }
-      y += line_spacing;
-    }
-    curr_item++;
-
-    // GPS Lon
-    if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      if (gps_on && nmea != NULL && nmea->isValid()) {
-        sprintf(buf, "   Lon: %.5f", nmea->getLongitude() / 1000000.0);
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, buf);
-        display.setColor(DisplayDriver::GREEN);
-      } else {
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, "   Lon: --");
-        display.setColor(DisplayDriver::GREEN);
-      }
-      y += line_spacing;
-    }
-    curr_item++;
-
-    // GPS Alt
-    if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      if (gps_on && nmea != NULL && nmea->isValid()) {
-        sprintf(buf, "   Alt: %.1fm", nmea->getAltitude() / 1000.0);
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, buf);
-        display.setColor(DisplayDriver::GREEN);
-      } else {
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, "   Alt: --");
-        display.setColor(DisplayDriver::GREEN);
-      }
-      y += line_spacing;
-    }
-    curr_item++;
-
-    // GPS Acc
-    if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      if (gps_on && nmea != NULL && nmea->isValid()) {
-        sprintf(buf, "   Acc: %.0fm", nmea->getAccuracy());
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, buf);
-        display.setColor(DisplayDriver::GREEN);
-      } else {
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawTextLeftAlign(5, y, "   Acc: --");
-        display.setColor(DisplayDriver::GREEN);
-      }
-      y += line_spacing;
-    }
-    curr_item++;
-
     // === LOCATION ADVERTISING HEADER ===
     if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      display.setColor(DisplayDriver::YELLOW);
-      display.setTextSize(1);
-      display.drawTextLeftAlign(2, y, "* Location Advert");
-      display.setColor(DisplayDriver::GREEN);
-      y += line_spacing;
+      DRAW_SECTION_HEADER("* Location Advert", y, line_spacing);
     }
     curr_item++;
 
     // GPS LocAdv Enabled
     if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
       bool locadv_on = _node_prefs->gps_loc_advert_enabled;
-      sprintf(buf, "%s Broadcast Location: %s", curr_setting == _selected_setting ? ">" : " ",
+      sprintf(buf, "  Broadcast Location: %s",
               locadv_on ? "ON" : "OFF");
-      display.drawTextLeftAlign(5, y, buf);
-      y += line_spacing;
+      drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
     }
     curr_item++;
     curr_setting++;
 
     // GPS LocAdv Distance
     if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      sprintf(buf, "%s Movement Threshold: %dm", curr_setting == _selected_setting ? ">" : " ",
+      sprintf(buf, "  Movement Threshold: %dm",
               _node_prefs->gps_loc_distance_threshold);
-      display.drawTextLeftAlign(5, y, buf);
-      y += line_spacing;
+      drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
     }
     curr_item++;
     curr_setting++;
 
     // GPS LocAdv Frequency
     if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      sprintf(buf, "%s Update Frequency: %ds", curr_setting == _selected_setting ? ">" : " ",
+      sprintf(buf, "  Update Frequency: %ds",
               _node_prefs->gps_loc_frequency * 10);
-      display.drawTextLeftAlign(5, y, buf);
-      y += line_spacing;
+      drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
     }
     curr_item++;
     curr_setting++;
@@ -385,19 +286,17 @@ found_selected:
         interval_str = "?";
         break;
       }
-      sprintf(buf, "%s Guaranteed Interval: %s", curr_setting == _selected_setting ? ">" : " ", interval_str);
-      display.drawTextLeftAlign(5, y, buf);
-      y += line_spacing;
+      sprintf(buf, "  Guaranteed Interval: %s", interval_str);
+      drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
     }
     curr_item++;
     curr_setting++;
 
     // GPS LocAdv Accuracy
     if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-      sprintf(buf, "%s Required Accuracy: %dm", curr_setting == _selected_setting ? ">" : " ",
+      sprintf(buf, "  Required Accuracy: %dm",
               _node_prefs->gps_loc_accuracy_threshold);
-      display.drawTextLeftAlign(5, y, buf);
-      y += line_spacing;
+      drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
     }
     curr_item++;
     curr_setting++;
@@ -406,11 +305,7 @@ found_selected:
 
   // === PRIVACY HEADER ===
   if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-    display.setColor(DisplayDriver::YELLOW);
-    display.setTextSize(1);
-    display.drawTextLeftAlign(2, y, "* Privacy");
-    display.setColor(DisplayDriver::GREEN);
-    y += line_spacing;
+    DRAW_SECTION_HEADER("* Privacy", y, line_spacing);
   }
   curr_item++;
 
@@ -422,9 +317,8 @@ found_selected:
     } else if (_node_prefs->telemetry_mode_base == TELEM_MODE_ALLOW_FLAGS) {
       telem_mode = "FLAGS";
     }
-    sprintf(buf, "%s Telemetry Share: %s", curr_setting == _selected_setting ? ">" : " ", telem_mode);
-    display.drawTextLeftAlign(5, y, buf);
-    y += line_spacing;
+    sprintf(buf, "  Telemetry Share: %s", telem_mode);
+    drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
   }
   curr_item++;
   curr_setting++;
@@ -432,29 +326,26 @@ found_selected:
   // Advertise location setting
   if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
     bool advert_loc = (_node_prefs->advert_loc_policy == ADVERT_LOC_SHARE);
-    sprintf(buf, "%s Advertise Location: %s", curr_setting == _selected_setting ? ">" : " ",
+    sprintf(buf, "  Advertise Location: %s",
             advert_loc ? "ON" : "OFF");
-    display.drawTextLeftAlign(5, y, buf);
-    y += line_spacing;
+    drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
   }
   curr_item++;
   curr_setting++;
 
-  // === MISC HEADER ===
+  // === MAINTENANCE HEADER ===
   if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-    display.setColor(DisplayDriver::YELLOW);
-    display.setTextSize(1);
-    display.drawTextLeftAlign(2, y, "* Misc");
-    display.setColor(DisplayDriver::GREEN);
-    y += line_spacing;
+    DRAW_SECTION_HEADER("* Maintenance", y, line_spacing);
   }
   curr_item++;
 
-  // Debug Keys setting
+  // Clear Files setting
   if (curr_item >= _scroll_offset && curr_item < _scroll_offset + visible_items) {
-    sprintf(buf, "%s Show Key Presses", curr_setting == _selected_setting ? ">" : " ");
-    display.drawTextLeftAlign(5, y, buf);
+    sprintf(buf, "  Clear Files");
+    drawSetting(display, y, line_spacing, curr_setting == _selected_setting, buf);
   }
+  curr_item++;
+  curr_setting++;
 
   // Draw scroll indicators on the right side
   int indicator_x = display.width() - 8;
@@ -474,10 +365,10 @@ found_selected:
 
 bool SettingsScreen::handleInput(char c) {
   // Count total settings
-  int num_settings = 6; // BLE, Radio Stats, Buzzer, Key Press Buzzer, Telemetry, Advert Loc, Debug Keys
+  int num_settings = 6; // BLE, Buzzer, Key Press Buzzer, Telemetry, Advert Loc, Clear Files
 #if ENV_INCLUDE_GPS == 1
   if (_sensors->getLocationProvider() != NULL) {
-    num_settings++;    // GPS toggle
+    num_settings += 1; // GPS toggle
     num_settings += 5; // GPS LocAdv: enabled, distance, frequency, interval, accuracy
   }
 #endif
@@ -521,21 +412,14 @@ bool SettingsScreen::handleInput(char c) {
     }
     curr_setting++;
 
-    // Radio Stats (setting 1)
-    if (curr_setting == _selected_setting) {
-      _task->gotoRadioStatsScreen();
-      return true;
-    }
-    curr_setting++;
-
-    // Buzzer (setting 2)
+    // Buzzer (setting 1)
     if (curr_setting == _selected_setting) {
       _task->toggleBuzzer();
       return true;
     }
     curr_setting++;
 
-    // Key Press Buzzer (setting 3)
+    // Key Press Buzzer (setting 2)
     if (curr_setting == _selected_setting) {
 #ifdef PIN_BUZZER
       _node_prefs->buzzer_key_press = !_node_prefs->buzzer_key_press;
@@ -549,15 +433,15 @@ bool SettingsScreen::handleInput(char c) {
 
 #if ENV_INCLUDE_GPS == 1
     if (_sensors->getLocationProvider() != NULL) {
-      // GPS Toggle (setting 4)
+      // GPS Toggle (setting 3)
       if (curr_setting == _selected_setting) {
         _task->toggleGPS();
         return true;
       }
       curr_setting++;
 
-      // GPS LocAdv settings start here (setting 5+)
-      // GPS LocAdv Enabled (setting 5)
+      // GPS LocAdv settings start here (setting 4+)
+      // GPS LocAdv Enabled (setting 4)
       if (curr_setting == _selected_setting) {
         _node_prefs->gps_loc_advert_enabled = !_node_prefs->gps_loc_advert_enabled;
         the_mesh.savePrefs();
@@ -567,7 +451,7 @@ bool SettingsScreen::handleInput(char c) {
       }
       curr_setting++;
 
-      // GPS LocAdv Distance (setting 6)
+      // GPS LocAdv Distance (setting 5)
       if (curr_setting == _selected_setting) {
         // Cycle through common values: 10, 50, 100, 200, 500
         int distances[] = {10, 50, 100, 200, 500};
@@ -590,7 +474,7 @@ bool SettingsScreen::handleInput(char c) {
       }
       curr_setting++;
 
-      // GPS LocAdv Frequency (setting 7)
+      // GPS LocAdv Frequency (setting 6)
       if (curr_setting == _selected_setting) {
         // Cycle through values: 30s, 60s, 120s, 300s (stored as value * 10)
         int frequencies[] = {3, 6, 12, 30}; // *10 = 30s, 60s, 120s, 300s
@@ -613,7 +497,7 @@ bool SettingsScreen::handleInput(char c) {
       }
       curr_setting++;
 
-      // GPS LocAdv Interval (setting 8)
+      // GPS LocAdv Interval (setting 7)
       if (curr_setting == _selected_setting) {
         _node_prefs->gps_loc_guaranteed_interval = (_node_prefs->gps_loc_guaranteed_interval + 1) % 3;
         the_mesh.savePrefs();
@@ -640,7 +524,7 @@ bool SettingsScreen::handleInput(char c) {
       }
       curr_setting++;
 
-      // GPS LocAdv Accuracy (setting 9)
+      // GPS LocAdv Accuracy (setting 8)
       if (curr_setting == _selected_setting) {
         // Cycle through common values: 5, 10, 20, 50, 100
         int accuracies[] = {5, 10, 20, 50, 100};
@@ -707,11 +591,28 @@ bool SettingsScreen::handleInput(char c) {
     }
     curr_setting++;
 
-    // Debug Keys (last setting)
+    // Clear Files
     if (curr_setting == _selected_setting) {
-      _task->gotoDebugKeyScreen();
+      // Save current settings first
+      the_mesh.savePrefs();
+      _task->notify(UIEventType::ack);
+      _task->showAlert("Clearing files...", 1500);
+
+      // Clear all files except settings
+      bool success = the_mesh.clearAllFilesExceptSettings();
+
+      if (success) {
+        // Reload settings to ensure they're in memory
+        _task->showAlert("Files cleared! Rebooting...", 2000);
+        delay(2000);
+        // Reboot the device
+        _task->shutdown(true);  // true = restart
+      } else {
+        _task->showAlert("Clear failed!", 1500);
+      }
       return true;
     }
+    curr_setting++;
   }
 
   return false;
