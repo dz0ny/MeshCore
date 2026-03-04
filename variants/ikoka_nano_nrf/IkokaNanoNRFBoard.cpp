@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <helpers/nrf52/NRF52Watchdog.h>
 
 #include "IkokaNanoNRFBoard.h"
 
@@ -30,6 +31,9 @@ void IkokaNanoNRFBoard::begin() {
 //  pinMode(SX126X_POWER_EN, OUTPUT);
 //  digitalWrite(SX126X_POWER_EN, HIGH);
   delay(10);   // give sx1262 some time to power up
+
+  // Initialize 30-second watchdog timer
+  nrf52::initWatchdog(30000);
 }
 
 #endif

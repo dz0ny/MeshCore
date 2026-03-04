@@ -269,7 +269,9 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
           is_ok = id.verify(signature, message, msg_len);
         }
         if (is_ok) {
-          MESH_DEBUG_PRINTLN("%s Mesh::onRecvPacket(): valid advertisement received!", getLogDateTime());
+          MESH_DEBUG_PRINTLN("%s Mesh::onRecvPacket(): FULL ADVERT RECEIVED - ID: %02X%02X%02X, ts: %u, hops: %d, SNR: %.1f, size: %d bytes",
+                            getLogDateTime(), id.pub_key[0], id.pub_key[15], id.pub_key[31],
+                            timestamp, pkt->path_len, pkt->getSNR(), pkt->getRawLength());
           onAdvertRecv(pkt, id, timestamp, app_data, app_data_len);
           action = routeRecvPacket(pkt);
         } else {

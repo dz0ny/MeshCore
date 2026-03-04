@@ -5,7 +5,7 @@ TBeamBoard board;
 
 #ifdef DISPLAY_CLASS
   DISPLAY_CLASS display;
-  MomentaryButton user_btn(PIN_USER_BTN, 1000, true);
+  MomentaryButton user_btn(PIN_USER_BTN, 1000, true, false, false);
 #endif
 
 static SPIClass spi;

@@ -85,6 +85,9 @@ void ST7789Display::startFrame(Color bkg) {
 
 void ST7789Display::setTextSize(int sz) {
   switch(sz) {
+    case 0 :
+      display.setFont(ArialMT_Plain_5);
+      break;
     case 1 :
       display.setFont(ArialMT_Plain_16);
       break;

@@ -728,6 +728,17 @@ SensorMesh::SensorMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::Millise
   _prefs.gps_enabled = 0;
   _prefs.gps_interval = 0;
   _prefs.advert_loc_policy = ADVERT_LOC_PREFS;
+
+  // GPS location advertising defaults
+  _prefs.gps_loc_advert_enabled = 0;       // disabled by default
+  _prefs.gps_loc_distance_threshold = 10;  // 10 meters
+  _prefs.gps_loc_frequency = 6;            // 60 seconds (stored as /10)
+  _prefs.gps_loc_guaranteed_interval = 1;  // 5 minutes
+  _prefs.gps_loc_accuracy_threshold = 20;  // 20 meters accuracy required
+  _prefs.last_advert_lat = 0.0;
+  _prefs.last_advert_lon = 0.0;
+
+  instance = this;  // Set static instance for callback
 }
 
 void SensorMesh::begin(FILESYSTEM* fs) {
@@ -748,6 +759,18 @@ void SensorMesh::begin(FILESYSTEM* fs) {
 
 #if ENV_INCLUDE_GPS == 1
   applyGpsPrefs();
+
+  // Initialize location advertiser with config pointers
+  sensors.initLocationAdvertiser(
+    &_prefs.gps_loc_distance_threshold,
+    &_prefs.gps_loc_frequency,
+    &_prefs.gps_loc_guaranteed_interval,
+    &_prefs.gps_loc_accuracy_threshold,
+    &_prefs.gps_loc_advert_enabled
+  );
+
+  // Set the callback for location advertisement triggers
+  sensors.setLocationAdvertCallback(&SensorMesh::onLocationAdvertTrigger);
 #endif
 }
 
@@ -944,4 +967,32 @@ void SensorMesh::loop() {
     acl.save(_fs);
     dirty_contacts_expiry = 0;
   }
+}
+
+// Static instance for callback
+SensorMesh* SensorMesh::instance = nullptr;
+
+// Static callback that forwards to instance method
+void SensorMesh::onLocationAdvertTrigger(double lat, double lon) {
+  if (instance) {
+    instance->sendLocationAdvertisement(lat, lon);
+  }
+}
+
+// Send location advertisement (flood only)
+void SensorMesh::sendLocationAdvertisement(double lat, double lon) {
+  MESH_DEBUG_PRINTLN("Location advert triggered: lat=%f, lon=%f", lat, lon);
+
+  mesh::Packet* pkt = createSelfAdvert();
+  if (pkt) {
+    // Send only flood advertisement
+    sendFlood(pkt);
+  } else {
+    MESH_DEBUG_PRINTLN("ERROR: unable to create location advertisement packet!");
+  }
+
+  // Update stored last advertised position
+  _prefs.last_advert_lat = lat;
+  _prefs.last_advert_lon = lon;
+  savePrefs();  // Persist the last advertised position
 }

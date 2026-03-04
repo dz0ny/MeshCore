@@ -32,10 +32,10 @@
 #define PIN_BUTTON5             (28) // Joystick Right
 #define PIN_BUTTON6             (29) // Joystick Press
 #define PIN_BACK_BTN            PIN_BUTTON1
-#define JOYSTICK_UP             PIN_BUTTON2
-#define JOYSTICK_DOWN           PIN_BUTTON3
-#define JOYSTICK_LEFT           PIN_BUTTON4
-#define JOYSTICK_RIGHT          PIN_BUTTON5
+#define JOYSTICK_UP             PIN_BUTTON4
+#define JOYSTICK_DOWN           PIN_BUTTON5
+#define JOYSTICK_LEFT           PIN_BUTTON3
+#define JOYSTICK_RIGHT          PIN_BUTTON2
 #define JOYSTICK_PRESS          PIN_BUTTON6
 #define PIN_USER_BTN            PIN_BUTTON6
 

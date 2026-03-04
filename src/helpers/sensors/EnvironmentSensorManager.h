@@ -3,6 +3,7 @@
 #include <Mesh.h>
 #include <helpers/SensorManager.h>
 #include <helpers/sensors/LocationProvider.h>
+#include <helpers/sensors/LocationAdvertiser.h>
 
 class EnvironmentSensorManager : public SensorManager {
 protected:
@@ -29,6 +30,10 @@ protected:
 
   #if ENV_INCLUDE_GPS
   LocationProvider* _location;
+  LocationAdvertiser _locAdvertiser;
+  LocationAdvertCallback _locAdvertCallback;
+  double _last_valid_lat, _last_valid_lon;
+  bool _has_last_valid_position;
   void start_gps();
   void stop_gps();
   void initBasicGPS();
@@ -41,8 +46,15 @@ protected:
 
 public:
   #if ENV_INCLUDE_GPS
-  EnvironmentSensorManager(LocationProvider &location): _location(&location){};
+  EnvironmentSensorManager(LocationProvider &location): _location(&location), _locAdvertCallback(nullptr), _has_last_valid_position(false) {
+    _last_valid_lat = 0.0;
+    _last_valid_lon = 0.0;
+  };
   LocationProvider* getLocationProvider() { return _location; }
+  void setLocationAdvertCallback(LocationAdvertCallback callback) override { _locAdvertCallback = callback; }
+  void initLocationAdvertiser(uint8_t* dist_thresh, uint8_t* freq, uint8_t* guaranteed, uint8_t* accuracy_thresh, uint8_t* enabled) {
+    _locAdvertiser.init(dist_thresh, freq, guaranteed, accuracy_thresh, enabled);
+  }
   #else
   EnvironmentSensorManager(){};
   #endif

@@ -59,4 +59,25 @@ bool genericBuzzer::isQuiet() {
     return _is_quiet;
 }
 
+// Button feedback sounds
+void genericBuzzer::playBeep() {
+    play(beep_song);
+}
+
+void genericBuzzer::playChirp() {
+    play(chirp_song);
+}
+
+void genericBuzzer::playBoop() {
+    play(boop_song);
+}
+
+void genericBuzzer::playComboTune() {
+    play(combo_song);
+}
+
+void genericBuzzer::playLongPressLeadUp() {
+    play(leadup_song);
+}
+
 #endif  // ifdef PIN_BUZZER

@@ -101,6 +101,13 @@ MyMesh the_mesh(radio_driver, fast_rng, rtc_clock, tables, store
 
 /* END GLOBAL OBJECTS */
 
+#if defined(DISPLAY_CLASS) && defined(BLE_PIN_CODE)
+// Callback function to jump to advert screen when BLE connects
+void onBLEConnected() {
+  ui_task.gotoAdvertPage();
+}
+#endif
+
 void halt() {
   while (1) ;
 }
@@ -151,7 +158,12 @@ void setup() {
   );
 
 #ifdef BLE_PIN_CODE
-  serial_interface.begin(BLE_NAME_PREFIX, the_mesh.getNodePrefs()->node_name, the_mesh.getBLEPin());
+  char dev_name[32+16];
+  sprintf(dev_name, "%s%s", BLE_NAME_PREFIX, the_mesh.getNodeName());
+  serial_interface.begin(dev_name, the_mesh.getBLEPin());
+  #ifdef DISPLAY_CLASS
+    serial_interface.setOnConnectCallback(onBLEConnected);
+  #endif
 #else
   serial_interface.begin(Serial);
 #endif
@@ -194,11 +206,15 @@ void setup() {
   );
 
 #ifdef WIFI_SSID
-  board.setInhibitSleep(true);   // prevent sleep when WiFi is active
   WiFi.begin(WIFI_SSID, WIFI_PWD);
   serial_interface.begin(TCP_PORT);
 #elif defined(BLE_PIN_CODE)
-  serial_interface.begin(BLE_NAME_PREFIX, the_mesh.getNodePrefs()->node_name, the_mesh.getBLEPin());
+  char dev_name[32+16];
+  sprintf(dev_name, "%s%s", BLE_NAME_PREFIX, the_mesh.getNodeName());
+  serial_interface.begin(dev_name, the_mesh.getBLEPin());
+  #ifdef DISPLAY_CLASS
+    serial_interface.setOnConnectCallback(onBLEConnected);
+  #endif
 #elif defined(SERIAL_RX)
   companion_serial.setPins(SERIAL_RX, SERIAL_TX);
   companion_serial.begin(115200);
@@ -212,6 +228,21 @@ void setup() {
 #endif
 
   sensors.begin();
+
+#if ENV_INCLUDE_GPS == 1
+  // Initialize location advertiser with config pointers from NodePrefs
+  NodePrefs* prefs = the_mesh.getNodePrefs();
+  sensors.initLocationAdvertiser(
+    &prefs->gps_loc_distance_threshold,
+    &prefs->gps_loc_frequency,
+    &prefs->gps_loc_guaranteed_interval,
+    &prefs->gps_loc_accuracy_threshold,
+    &prefs->gps_loc_advert_enabled
+  );
+
+  // Set the callback for location advertisement triggers
+  sensors.setLocationAdvertCallback(&MyMesh::onLocationAdvertTrigger);
+#endif
 
 #ifdef DISPLAY_CLASS
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved

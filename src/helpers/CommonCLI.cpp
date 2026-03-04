@@ -14,14 +14,6 @@ static uint32_t _atoi(const char* sp) {
   return n;
 }
 
-static bool isValidName(const char *n) {
-  while (*n) {
-    if (*n == '[' || *n == ']' || *n == '\\' || *n == ':' || *n == ',' || *n == '?' || *n == '*') return false;
-    n++;
-  }
-  return true;
-}
-
 void CommonCLI::loadPrefs(FILESYSTEM* fs) {
   if (fs->exists("/com_prefs")) {
     loadPrefsInt(fs, "/com_prefs");   // new filename
@@ -73,15 +65,20 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read((uint8_t *)&_prefs->bridge_baud, sizeof(_prefs->bridge_baud));                       // 131
     file.read((uint8_t *)&_prefs->bridge_channel, sizeof(_prefs->bridge_channel));                 // 135
     file.read((uint8_t *)&_prefs->bridge_secret, sizeof(_prefs->bridge_secret));                   // 136
-    file.read((uint8_t *)&_prefs->powersaving_enabled, sizeof(_prefs->powersaving_enabled));       // 152
-    file.read(pad, 3);                                                                             // 153
+    file.read(pad, 4);                                                                             // 152
     file.read((uint8_t *)&_prefs->gps_enabled, sizeof(_prefs->gps_enabled));                       // 156
     file.read((uint8_t *)&_prefs->gps_interval, sizeof(_prefs->gps_interval));                     // 157
     file.read((uint8_t *)&_prefs->advert_loc_policy, sizeof (_prefs->advert_loc_policy));          // 161
     file.read((uint8_t *)&_prefs->discovery_mod_timestamp, sizeof(_prefs->discovery_mod_timestamp)); // 162
-    file.read((uint8_t *)&_prefs->adc_multiplier, sizeof(_prefs->adc_multiplier)); // 166
-    file.read((uint8_t *)_prefs->owner_info, sizeof(_prefs->owner_info));  // 170
-    // 290
+    // 166
+    file.read((uint8_t *)&_prefs->gps_loc_advert_enabled, sizeof(_prefs->gps_loc_advert_enabled)); // 162
+    file.read((uint8_t *)&_prefs->gps_loc_distance_threshold, sizeof(_prefs->gps_loc_distance_threshold)); // 163
+    file.read((uint8_t *)&_prefs->gps_loc_frequency, sizeof(_prefs->gps_loc_frequency));           // 164
+    file.read((uint8_t *)&_prefs->gps_loc_guaranteed_interval, sizeof(_prefs->gps_loc_guaranteed_interval)); // 165
+    file.read((uint8_t *)&_prefs->gps_loc_accuracy_threshold, sizeof(_prefs->gps_loc_accuracy_threshold)); // 166
+    file.read((uint8_t *)&_prefs->last_advert_lat, sizeof(_prefs->last_advert_lat));               // 167
+    file.read((uint8_t *)&_prefs->last_advert_lon, sizeof(_prefs->last_advert_lon));               // 175
+    // 183
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -92,9 +89,8 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     _prefs->bw = constrain(_prefs->bw, 7.8f, 500.0f);
     _prefs->sf = constrain(_prefs->sf, 5, 12);
     _prefs->cr = constrain(_prefs->cr, 5, 8);
-    _prefs->tx_power_dbm = constrain(_prefs->tx_power_dbm, -9, 30);
+    _prefs->tx_power_dbm = constrain(_prefs->tx_power_dbm, 1, 30);
     _prefs->multi_acks = constrain(_prefs->multi_acks, 0, 1);
-    _prefs->adc_multiplier = constrain(_prefs->adc_multiplier, 0.0f, 10.0f);
 
     // sanitise bad bridge pref values
     _prefs->bridge_enabled = constrain(_prefs->bridge_enabled, 0, 1);
@@ -103,10 +99,13 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     _prefs->bridge_baud = constrain(_prefs->bridge_baud, 9600, 115200);
     _prefs->bridge_channel = constrain(_prefs->bridge_channel, 0, 14);
 
-    _prefs->powersaving_enabled = constrain(_prefs->powersaving_enabled, 0, 1);
-
     _prefs->gps_enabled = constrain(_prefs->gps_enabled, 0, 1);
     _prefs->advert_loc_policy = constrain(_prefs->advert_loc_policy, 0, 2);
+    _prefs->gps_loc_advert_enabled = constrain(_prefs->gps_loc_advert_enabled, 0, 1);
+    _prefs->gps_loc_distance_threshold = constrain(_prefs->gps_loc_distance_threshold, 1, 20);
+    _prefs->gps_loc_frequency = constrain(_prefs->gps_loc_frequency, 3, 30); // 30s-300s stored as /10
+    _prefs->gps_loc_guaranteed_interval = constrain(_prefs->gps_loc_guaranteed_interval, 0, 2);
+    _prefs->gps_loc_accuracy_threshold = constrain(_prefs->gps_loc_accuracy_threshold, 3, 30); // 3-30m accuracy
 
     file.close();
   }
@@ -157,21 +156,26 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *)&_prefs->bridge_baud, sizeof(_prefs->bridge_baud));                       // 131
     file.write((uint8_t *)&_prefs->bridge_channel, sizeof(_prefs->bridge_channel));                 // 135
     file.write((uint8_t *)&_prefs->bridge_secret, sizeof(_prefs->bridge_secret));                   // 136
-    file.write((uint8_t *)&_prefs->powersaving_enabled, sizeof(_prefs->powersaving_enabled));       // 152
-    file.write(pad, 3);                                                                             // 153
+    file.write(pad, 4);                                                                             // 152
     file.write((uint8_t *)&_prefs->gps_enabled, sizeof(_prefs->gps_enabled));                       // 156
     file.write((uint8_t *)&_prefs->gps_interval, sizeof(_prefs->gps_interval));                     // 157
     file.write((uint8_t *)&_prefs->advert_loc_policy, sizeof(_prefs->advert_loc_policy));           // 161
     file.write((uint8_t *)&_prefs->discovery_mod_timestamp, sizeof(_prefs->discovery_mod_timestamp)); // 162
-    file.write((uint8_t *)&_prefs->adc_multiplier, sizeof(_prefs->adc_multiplier));                 // 166
-    file.write((uint8_t *)_prefs->owner_info, sizeof(_prefs->owner_info));  // 170
-    // 290
+    // 166
+    file.write((uint8_t *)&_prefs->gps_loc_advert_enabled, sizeof(_prefs->gps_loc_advert_enabled)); // 162
+    file.write((uint8_t *)&_prefs->gps_loc_distance_threshold, sizeof(_prefs->gps_loc_distance_threshold)); // 163
+    file.write((uint8_t *)&_prefs->gps_loc_frequency, sizeof(_prefs->gps_loc_frequency));           // 164
+    file.write((uint8_t *)&_prefs->gps_loc_guaranteed_interval, sizeof(_prefs->gps_loc_guaranteed_interval)); // 165
+    file.write((uint8_t *)&_prefs->gps_loc_accuracy_threshold, sizeof(_prefs->gps_loc_accuracy_threshold)); // 166
+    file.write((uint8_t *)&_prefs->last_advert_lat, sizeof(_prefs->last_advert_lat));               // 167
+    file.write((uint8_t *)&_prefs->last_advert_lon, sizeof(_prefs->last_advert_lon));               // 175
+    // 183
 
     file.close();
   }
 }
 
-#define MIN_LOCAL_ADVERT_INTERVAL   60
+#define MIN_LOCAL_ADVERT_INTERVAL   5
 
 void CommonCLI::savePrefs() {
   if (_prefs->advert_interval * 2 < MIN_LOCAL_ADVERT_INTERVAL) {
@@ -196,13 +200,8 @@ uint8_t CommonCLI::buildAdvertData(uint8_t node_type, uint8_t* app_data) {
 void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, char* reply) {
     if (memcmp(command, "reboot", 6) == 0) {
       _board->reboot();  // doesn't return
-    } else if (memcmp(command, "clkreboot", 9) == 0) {
-      // Reset clock
-      getRTCClock()->setCurrentTime(1715770351);  // 15 May 2024, 8:50pm
-      _board->reboot();  // doesn't return
     } else if (memcmp(command, "advert", 6) == 0) {
-      // send flood advert
-      _callbacks->sendSelfAdvertisement(1500, true);  // longer delay, give CLI response time to be sent first
+      _callbacks->sendSelfAdvertisement(1500);  // longer delay, give CLI response time to be sent first
       strcpy(reply, "OK - Advert sent");
     } else if (memcmp(command, "clock sync", 10) == 0) {
       uint32_t curr = getRTCClock()->getCurrentTime();
@@ -250,8 +249,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       strcpy(tmp, &command[10]);
       const char *parts[5];
       int num = mesh::Utils::parseTextParts(tmp, parts, 5);
-      float freq  = num > 0 ? strtof(parts[0], nullptr) : 0.0f;
-      float bw    = num > 1 ? strtof(parts[1], nullptr) : 0.0f;
+      float freq  = num > 0 ? atof(parts[0]) : 0.0f;
+      float bw    = num > 1 ? atof(parts[1]) : 0.0f;
       uint8_t sf  = num > 2 ? atoi(parts[2]) : 0;
       uint8_t cr  = num > 3 ? atoi(parts[3]) : 0;
       int temp_timeout_mins  = num > 4 ? atoi(parts[4]) : 0;
@@ -306,7 +305,7 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       } else if (memcmp(config, "radio", 5) == 0) {
         char freq[16], bw[16];
         strcpy(freq, StrHelper::ftoa(_prefs->freq));
-        strcpy(bw, StrHelper::ftoa3(_prefs->bw));
+        strcpy(bw, StrHelper::ftoa(_prefs->bw));
         sprintf(reply, "> %s,%s,%d,%d", freq, bw, (uint32_t)_prefs->sf, (uint32_t)_prefs->cr);
       } else if (memcmp(config, "rxdelay", 7) == 0) {
         sprintf(reply, "> %s", StrHelper::ftoa(_prefs->rx_delay_base));
@@ -316,17 +315,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         sprintf(reply, "> %d", (uint32_t)_prefs->flood_max);
       } else if (memcmp(config, "direct.txdelay", 14) == 0) {
         sprintf(reply, "> %s", StrHelper::ftoa(_prefs->direct_tx_delay_factor));
-      } else if (memcmp(config, "owner.info", 10) == 0) {
-        *reply++ = '>';
-        *reply++ = ' ';
-        const char* sp = _prefs->owner_info;
-        while (*sp) {
-          *reply++ = (*sp == '\n') ? '|' : *sp;    // translate newline back to orig '|'
-          sp++;
-        }
-        *reply = 0;  // set null terminator
       } else if (memcmp(config, "tx", 2) == 0 && (config[2] == 0 || config[2] == ' ')) {
-        sprintf(reply, "> %d", (int32_t) _prefs->tx_power_dbm);
+        sprintf(reply, "> %d", (uint32_t) _prefs->tx_power_dbm);
       } else if (memcmp(config, "freq", 4) == 0) {
         sprintf(reply, "> %s", StrHelper::ftoa(_prefs->freq));
       } else if (memcmp(config, "public.key", 10) == 0) {
@@ -362,40 +352,6 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       } else if (memcmp(config, "bridge.secret", 13) == 0) {
         sprintf(reply, "> %s", _prefs->bridge_secret);
 #endif
-      } else if (memcmp(config, "adc.multiplier", 14) == 0) {
-        float adc_mult = _board->getAdcMultiplier();
-        if (adc_mult == 0.0f) {
-          strcpy(reply, "Error: unsupported by this board");
-        } else {
-          sprintf(reply, "> %.3f", adc_mult);
-        }
-      // Power management commands
-      } else if (memcmp(config, "pwrmgt.support", 14) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        strcpy(reply, "> supported");
-#else
-        strcpy(reply, "> unsupported");
-#endif
-      } else if (memcmp(config, "pwrmgt.source", 13) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        strcpy(reply, _board->isExternalPowered() ? "> external" : "> battery");
-#else
-        strcpy(reply, "ERROR: Power management not supported");
-#endif
-      } else if (memcmp(config, "pwrmgt.bootreason", 17) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        sprintf(reply, "> Reset: %s; Shutdown: %s",
-          _board->getResetReasonString(_board->getResetReason()),
-          _board->getShutdownReasonString(_board->getShutdownReason()));
-#else
-        strcpy(reply, "ERROR: Power management not supported");
-#endif
-      } else if (memcmp(config, "pwrmgt.bootmv", 13) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        sprintf(reply, "> %u mV", _board->getBootVoltage());
-#else
-        strcpy(reply, "ERROR: Power management not supported");
-#endif
       } else {
         sprintf(reply, "??: %s", config);
       }
@@ -426,8 +382,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         strcpy(reply, "OK");
       } else if (memcmp(config, "flood.advert.interval ", 22) == 0) {
         int hours = _atoi(&config[22]);
-        if ((hours > 0 && hours < 3) || (hours > 168)) {
-          strcpy(reply, "Error: interval range is 3-168 hours");
+        if ((hours > 0 && hours < 1) || (hours > 48)) {
+          strcpy(reply, "Error: interval range is 1-48 hours");
         } else {
           _prefs->flood_advert_interval = (uint8_t)(hours);
           _callbacks->updateFloodAdvertTimer();
@@ -448,27 +404,22 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         StrHelper::strncpy(_prefs->guest_password, &config[15], sizeof(_prefs->guest_password));
         savePrefs();
         strcpy(reply, "OK");
-      } else if (memcmp(config, "prv.key ", 8) == 0) {
+      } else if (sender_timestamp == 0 &&
+                 memcmp(config, "prv.key ", 8) == 0) { // from serial command line only
         uint8_t prv_key[PRV_KEY_SIZE];
         bool success = mesh::Utils::fromHex(prv_key, PRV_KEY_SIZE, &config[8]);
-        // only allow rekey if key is valid
-        if (success && mesh::LocalIdentity::validatePrivateKey(prv_key)) {
+        if (success) {
           mesh::LocalIdentity new_id;
           new_id.readFrom(prv_key, PRV_KEY_SIZE);
           _callbacks->saveIdentity(new_id);
-          strcpy(reply, "OK, reboot to apply! New pubkey: ");
-          mesh::Utils::toHex(&reply[33], new_id.pub_key, PUB_KEY_SIZE);
-        } else {
-          strcpy(reply, "Error, bad key");
-        }
-      } else if (memcmp(config, "name ", 5) == 0) {
-        if (isValidName(&config[5])) {
-          StrHelper::strncpy(_prefs->node_name, &config[5], sizeof(_prefs->node_name));
-          savePrefs();
           strcpy(reply, "OK");
         } else {
-          strcpy(reply, "Error, bad chars");
+          strcpy(reply, "Error, invalid key");
         }
+      } else if (memcmp(config, "name ", 5) == 0) {
+        StrHelper::strncpy(_prefs->node_name, &config[5], sizeof(_prefs->node_name));
+        savePrefs();
+        strcpy(reply, "OK");
       } else if (memcmp(config, "repeat ", 7) == 0) {
         _prefs->disable_fwd = memcmp(&config[7], "off", 3) == 0;
         savePrefs();
@@ -477,8 +428,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         strcpy(tmp, &config[6]);
         const char *parts[4];
         int num = mesh::Utils::parseTextParts(tmp, parts, 4);
-        float freq  = num > 0 ? strtof(parts[0], nullptr) : 0.0f;
-        float bw    = num > 1 ? strtof(parts[1], nullptr) : 0.0f;
+        float freq  = num > 0 ? atof(parts[0]) : 0.0f;
+        float bw    = num > 1 ? atof(parts[1]) : 0.0f;
         uint8_t sf  = num > 2 ? atoi(parts[2]) : 0;
         uint8_t cr  = num > 3 ? atoi(parts[3]) : 0;
         if (freq >= 300.0f && freq <= 2500.0f && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 7.0f && bw <= 500.0f) {
@@ -535,16 +486,6 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         } else {
           strcpy(reply, "Error, cannot be negative");
         }
-      } else if (memcmp(config, "owner.info ", 11) == 0) {
-        config += 11;
-        char *dp = _prefs->owner_info;
-        while (*config && dp - _prefs->owner_info < sizeof(_prefs->owner_info)-1) {
-          *dp++ = (*config == '|') ? '\n' : *config;    // translate '|' to newline chars
-          config++;
-        }
-        *dp = 0;
-        savePrefs();
-        strcpy(reply, "OK");
       } else if (memcmp(config, "tx ", 3) == 0) {
         _prefs->tx_power_dbm = atoi(&config[3]);
         savePrefs();
@@ -603,19 +544,6 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         savePrefs();
         strcpy(reply, "OK");
 #endif
-      } else if (memcmp(config, "adc.multiplier ", 15) == 0) {
-        _prefs->adc_multiplier = atof(&config[15]);
-        if (_board->setAdcMultiplier(_prefs->adc_multiplier)) {
-          savePrefs();
-          if (_prefs->adc_multiplier == 0.0f) {
-            strcpy(reply, "OK - using default board multiplier");
-          } else {
-            sprintf(reply, "OK - multiplier set to %.3f", _prefs->adc_multiplier);
-          }
-        } else {
-          _prefs->adc_multiplier = 0.0f;
-          strcpy(reply, "Error: unsupported by this board");
-        };
       } else {
         sprintf(reply, "unknown config: %s", config);
       }
@@ -727,6 +655,64 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       } else {
         strcpy(reply, "error");
       }
+    } else if (memcmp(command, "gps locadv on", 13) == 0) {
+      _prefs->gps_loc_advert_enabled = 1;
+      savePrefs();
+      strcpy(reply, "ok");
+    } else if (memcmp(command, "gps locadv off", 14) == 0) {
+      _prefs->gps_loc_advert_enabled = 0;
+      savePrefs();
+      strcpy(reply, "ok");
+    } else if (memcmp(command, "gps locadv dist ", 16) == 0) {
+      uint8_t dist = atoi(&command[16]);
+      if (dist >= 1 && dist <= 20) {
+        _prefs->gps_loc_distance_threshold = dist;
+        savePrefs();
+        strcpy(reply, "ok");
+      } else {
+        strcpy(reply, "error: range 1-20m");
+      }
+    } else if (memcmp(command, "gps locadv freq ", 16) == 0) {
+      uint16_t freq_secs = atoi(&command[16]);
+      if (freq_secs >= 30 && freq_secs <= 300) {
+        _prefs->gps_loc_frequency = freq_secs / 10;
+        savePrefs();
+        sprintf(reply, "ok - %ds", _prefs->gps_loc_frequency * 10);
+      } else {
+        strcpy(reply, "error: range 30-300s");
+      }
+    } else if (memcmp(command, "gps locadv interval ", 20) == 0) {
+      uint16_t mins = atoi(&command[20]);
+      if (mins == 1) {
+        _prefs->gps_loc_guaranteed_interval = 0;
+        savePrefs();
+        strcpy(reply, "ok - 1min");
+      } else if (mins == 5) {
+        _prefs->gps_loc_guaranteed_interval = 1;
+        savePrefs();
+        strcpy(reply, "ok - 5min");
+      } else if (mins == 15) {
+        _prefs->gps_loc_guaranteed_interval = 2;
+        savePrefs();
+        strcpy(reply, "ok - 15min");
+      } else {
+        strcpy(reply, "error: use 1, 5, or 15");
+      }
+    } else if (memcmp(command, "gps locadv", 10) == 0) {
+      const char* enabled_str = _prefs->gps_loc_advert_enabled ? "on" : "off";
+      uint16_t freq_secs = _prefs->gps_loc_frequency * 10;
+      const char* interval_str;
+      switch (_prefs->gps_loc_guaranteed_interval) {
+        case 0: interval_str = "1min"; break;
+        case 1: interval_str = "5min"; break;
+        case 2: interval_str = "15min"; break;
+        default: interval_str = "?"; break;
+      }
+      sprintf(reply, "> %s, %dm dist, %ds freq, %s int",
+              enabled_str,
+              _prefs->gps_loc_distance_threshold,
+              freq_secs,
+              interval_str);
     } else if (memcmp(command, "gps", 3) == 0) {
       LocationProvider * l = _sensors->getLocationProvider();
       if (l != NULL) {
@@ -746,20 +732,6 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         strcpy(reply, "Can't find GPS");
       }
 #endif
-    } else if (memcmp(command, "powersaving on", 14) == 0) {
-      _prefs->powersaving_enabled = 1;
-      savePrefs();
-      strcpy(reply, "ok"); // TODO: to return Not supported if required
-    } else if (memcmp(command, "powersaving off", 15) == 0) {
-      _prefs->powersaving_enabled = 0;
-      savePrefs();
-      strcpy(reply, "ok");
-    } else if (memcmp(command, "powersaving", 11) == 0) {
-      if (_prefs->powersaving_enabled) {
-        strcpy(reply, "on");
-      } else {
-        strcpy(reply, "off");
-      }
     } else if (memcmp(command, "log start", 9) == 0) {
       _callbacks->setLoggingOn(true);
       strcpy(reply, "   logging on");

@@ -3,7 +3,6 @@
 #include "Mesh.h"
 #include <helpers/IdentityStore.h>
 #include <helpers/SensorManager.h>
-#include <helpers/ClientACL.h>
 
 #if defined(WITH_RS232_BRIDGE) || defined(WITH_ESPNOW_BRIDGE)
 #define WITH_BRIDGE
@@ -19,7 +18,7 @@ struct NodePrefs { // persisted to file
   double node_lat, node_lon;
   char password[16];
   float freq;
-  int8_t tx_power_dbm;
+  uint8_t tx_power_dbm;
   uint8_t disable_fwd;
   uint8_t advert_interval;       // minutes / 2
   uint8_t flood_advert_interval; // hours
@@ -43,15 +42,18 @@ struct NodePrefs { // persisted to file
   uint32_t bridge_baud;   // 9600, 19200, 38400, 57600, 115200 (default 115200)
   uint8_t bridge_channel; // 1-14 (ESP-NOW only)
   char bridge_secret[16]; // for XOR encryption of bridge packets (ESP-NOW only)
-  // Power setting
-  uint8_t powersaving_enabled; // boolean
   // Gps settings
   uint8_t gps_enabled;
   uint32_t gps_interval; // in seconds
   uint8_t advert_loc_policy;
   uint32_t discovery_mod_timestamp;
-  float adc_multiplier;
-  char owner_info[120];
+  // GPS location advertising settings
+  uint8_t gps_loc_advert_enabled;       // 0=off, 1=on
+  uint8_t gps_loc_distance_threshold;   // meters (1-20)
+  uint8_t gps_loc_frequency;            // seconds/10 (30s-300s stored as 3-30)
+  uint8_t gps_loc_guaranteed_interval;  // 0=1min, 1=5min, 2=15min
+  uint8_t gps_loc_accuracy_threshold;   // meters (3-20, GPS accuracy must be better than this)
+  double last_advert_lat, last_advert_lon; // Track last advertised position
 };
 
 class CommonCLICallbacks {
@@ -61,13 +63,13 @@ public:
   virtual const char* getBuildDate() = 0;
   virtual const char* getRole() = 0;
   virtual bool formatFileSystem() = 0;
-  virtual void sendSelfAdvertisement(int delay_millis, bool flood) = 0;
+  virtual void sendSelfAdvertisement(int delay_millis) = 0;
   virtual void updateAdvertTimer() = 0;
   virtual void updateFloodAdvertTimer() = 0;
   virtual void setLoggingOn(bool enable) = 0;
   virtual void eraseLogFile() = 0;
   virtual void dumpLogFile() = 0;
-  virtual void setTxPower(int8_t power_dbm) = 0;
+  virtual void setTxPower(uint8_t power_dbm) = 0;
   virtual void formatNeighborsReply(char *reply) = 0;
   virtual void removeNeighbor(const uint8_t* pubkey, int key_len) {
     // no op by default
@@ -95,7 +97,6 @@ class CommonCLI {
   CommonCLICallbacks* _callbacks;
   mesh::MainBoard* _board;
   SensorManager* _sensors;
-  ClientACL* _acl;
   char tmp[PRV_KEY_SIZE*2 + 4];
 
   mesh::RTCClock* getRTCClock() { return _rtc; }
@@ -103,8 +104,8 @@ class CommonCLI {
   void loadPrefsInt(FILESYSTEM* _fs, const char* filename);
 
 public:
-  CommonCLI(mesh::MainBoard& board, mesh::RTCClock& rtc, SensorManager& sensors, ClientACL& acl, NodePrefs* prefs, CommonCLICallbacks* callbacks)
-      : _board(&board), _rtc(&rtc), _sensors(&sensors), _acl(&acl), _prefs(prefs), _callbacks(callbacks) { }
+  CommonCLI(mesh::MainBoard& board, mesh::RTCClock& rtc, SensorManager& sensors, NodePrefs* prefs, CommonCLICallbacks* callbacks)
+      : _board(&board), _rtc(&rtc), _sensors(&sensors), _prefs(prefs), _callbacks(callbacks) { }
 
   void loadPrefs(FILESYSTEM* _fs);
   void savePrefs(FILESYSTEM* _fs);

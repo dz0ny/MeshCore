@@ -12,7 +12,7 @@ MeshCore provides the ability to create wireless mesh networks, similar to Mesht
 * Multi-Hop Packet Routing
   * Devices can forward messages across multiple nodes, extending range beyond a single radio's reach.
   * Supports up to a configurable number of hops to balance network efficiency and prevent excessive traffic.
-  * Nodes use fixed roles where "Companion" nodes are not repeating messages at all to prevent adverse routing paths from being used.
+  * Nodes use configurable roles: "Companion" nodes can optionally forward packets (disabled by default), "Repeater" nodes always forward to extend network coverage.
 * Supports LoRa Radios – Works with Heltec, RAK Wireless, and other LoRa-based hardware.
 * Decentralized & Resilient – No central server or internet required; the network is self-healing.
 * Low Power Consumption – Ideal for battery-powered or solar-powered devices.
@@ -30,6 +30,8 @@ MeshCore provides the ability to create wireless mesh networks, similar to Mesht
 
 - Watch the [MeshCore Intro Video](https://www.youtube.com/watch?v=t1qne8uJBAc) by Andy Kirby.
 - Read through our [Frequently Asked Questions](./docs/faq.md) section.
+- Learn about [Companion Packet Forwarding](./docs/COMPANION_PACKET_FORWARDING.md) to configure network relay settings.
+- Understand [Minimal Location Advertisements](./docs/MINIMAL_LOCATION_ADVERTS.md) for optimized GPS location sharing.
 - Flash the MeshCore firmware on a supported device.
 - Connect with a supported client.
 
@@ -39,11 +41,9 @@ For developers;
 - Clone and open the MeshCore repository in Visual Studio Code.
 - See the example applications you can modify and run:
   - [Companion Radio](./examples/companion_radio) - For use with an external chat app, over BLE, USB or WiFi.
-  - [KISS Modem](./examples/kiss_modem) - Serial KISS protocol bridge for host applications. ([protocol docs](./docs/kiss_modem_protocol.md))
   - [Simple Repeater](./examples/simple_repeater) - Extends network coverage by relaying messages.
   - [Simple Room Server](./examples/simple_room_server) - A simple BBS server for shared Posts.
   - [Simple Secure Chat](./examples/simple_secure_chat) - Secure terminal based text communication between devices.
-  - [Simple Sensor](./examples/simple_sensor) - Remote sensor node with telemetry and alerting.
 
 The Simple Secure Chat example can be interacted with through the Serial Monitor in Visual Studio Code, or with a Serial USB Terminal on Android.
 
@@ -91,27 +91,80 @@ Please submit PR's using 'dev' as the base branch!
 For minor changes just submit your PR and I'll try to review it, but for anything more 'impactful' please open an Issue first and start a discussion. Is better to sound out what it is you want to achieve first, and try to come to a consensus on what the best approach is, especially when it impacts the structure or architecture of this codebase.
 
 Here are some general principals you should try to adhere to:
-* Keep it simple. Please, don't think like a high-level lang programmer. Think embedded, and keep code concise, without any unnecessary layers.
+* Keep it simple. Please, don't think like a high-level lang programmer. Think embedded, and keep code concise, without any unecessary layers.
 * No dynamic memory allocation, except during setup/begin functions.
 * Use the same brace and indenting style that's in the core source modules. (A .clang-format is prob going to be added soon, but please do NOT retroactively re-format existing code. This just creates unnecessary diffs that make finding problems harder)
+
+## 🆕 Recent Major Enhancements (revert-ble-advert branch)
+
+This branch includes significant improvements over upstream dev:
+
+### Companion Radio UI Overhaul
+- Complete redesign of the companion radio UI with modular screen architecture
+- New screens: HomeScreen, MessagesScreen, ContactsScreen, SettingsScreen, TelemetryScreen, GPSScreen, RadioStatsScreen, and more
+- Enhanced message handling with MessageStore for efficient message management
+- Improved rendering performance with display caching and optimized drawing functions
+- Internationalization support via UIStrings (multiple language translations)
+- Better input handling with streamlined navigation and menu access
+
+### Packet Forwarding for Companion Nodes
+- Companion devices can now optionally forward packets with 4 configurable modes (Off, Advert, Smart, Always)
+- Smart forwarding pauses when actively communicating with client apps
+- Battery-aware forwarding (auto-disables below 20%)
+- CMD_SET_FWD_MODE API for remote configuration (v8+ protocol)
+- See [Companion Packet Forwarding](./docs/COMPANION_PACKET_FORWARDING.md) for details
+
+### Minimal Location Advertisements
+- Drastically reduced LoRa airtime for GPS location updates (~86% reduction: 116 bytes → 16 bytes)
+- Uses compressed node IDs instead of full public keys and signatures
+- Automatic fallback to full advertisements periodically
+- Configurable via LocationAdvertiser class
+- See [Minimal Location Advertisements](./docs/MINIMAL_LOCATION_ADVERTS.md) for technical details
+
+### Platform & Hardware Improvements
+- Enhanced BLE interface with improved advertising and connection handling
+- NRF52 watchdog support for improved reliability
+- Better battery monitoring and display (BatteryIconApplet)
+- Support for additional fonts (OLEDDisplayFonts)
+- Improved e-ink display handling (GxEPDDisplay enhancements)
+- Buzzer support improvements for audio feedback
+
+### Developer Experience
+- New UI helper utilities (UIHelpers.h, UIStrings)
+- Modular screen architecture makes UI customization easier
+- Enhanced debugging with location advertisement logging
+- Better structure for settings management and configuration
+
+**Total Changes:** 148 files modified, 9,067 insertions, 639 deletions across 18 commits
 
 ## Road-Map / To-Do
 
 There are a number of fairly major features in the pipeline, with no particular time-frames attached yet. In very rough chronological order:
 - [X] Companion radio: UI redesign
-- [X] Repeater + Room Server: add ACL's (like Sensor Node has)
-- [X] Standardise Bridge mode for repeaters
+- [X] Minimal location advertisements for airtime optimization
+- [X] Configurable packet forwarding for companion nodes
+- [ ] Repeater + Room Server: add ACL's (like Sensor Node has)
+- [ ] Standardise Bridge mode for repeaters
 - [ ] Repeater/Bridge: Standardise the Transport Codes for zoning/filtering
-- [X] Core + Repeater: enhanced zero-hop neighbour discovery
+- [ ] Core + Repeater: enhanced zero-hop neighbour discovery
 - [ ] Core: round-trip manual path support
 - [ ] Companion + Apps: support for multiple sub-meshes (and 'off-grid' client repeat mode)
 - [ ] Core + Apps: support for LZW message compression
 - [ ] Core: dynamic CR (Coding Rate) for weak vs strong hops
 - [ ] Core: new framework for hosting multiple virtual nodes on one physical device
-- [ ] V2 protocol spec: discussion and consensus around V2 packet protocol, including path hashes, new encryption specs, etc
+- [ ] V2 protocol spec: discussion and concensus around V2 packet protocol, including path hashes, new encryption specs, etc
 
 ## 📞 Get Support
 
 - Report bugs and request features on the [GitHub Issues](https://github.com/ripplebiz/MeshCore/issues) page.
 - Find additional guides and components on [my site](https://buymeacoffee.com/ripplebiz).
 - Join [MeshCore Discord](https://discord.gg/BMwCtwHj5V) to chat with the developers and get help from the community.
+
+## RAK Wireless Board Support in PlatformIO
+
+Before building/flashing the RAK4631 targets in this project, there is, unfortunately, some patching you have to do to your platformIO packages to make it work. There is a guide here on the process:
+   [RAK Wireless: How to Perform Installation of Board Support Package in PlatformIO](https://learn.rakwireless.com/hc/en-us/articles/26687276346775-How-To-Perform-Installation-of-Board-Support-Package-in-PlatformIO)
+
+After building, you will need to convert the output firmware.hex file into a .uf2 file you can copy over to your RAK4631 device (after doing a full erase) by using the command `uf2conv.py -f 0xADA52840 -c firmware.hex` with the python script available from:
+   [GitHub: Microsoft - uf2](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py)
+

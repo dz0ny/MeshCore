@@ -21,6 +21,16 @@
 
 #include "../AbstractUITask.h"
 #include "../NodePrefs.h"
+#include "SplashScreen.h"
+#include "HomeScreen.h"
+#include "MsgPreviewScreen.h"
+#include "MessagesScreen.h"
+#include "ContactsScreen.h"
+#include "SettingsScreen.h"
+#include "RadioStatsScreen.h"
+#include "GPSScreen.h"
+#include "ReportsScreen.h"
+#include "TelemetryScreen.h"
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
@@ -38,6 +48,7 @@ class UITask : public AbstractUITask {
   int _msgcount;
   unsigned long ui_started_at, next_batt_chck;
   int next_backlight_btn_check = 0;
+  long _cached_gps_sats = -1;
 #ifdef PIN_STATUS_LED
   int led_state = 0;
   int next_led_change = 0;
@@ -51,6 +62,13 @@ class UITask : public AbstractUITask {
   UIScreen* splash;
   UIScreen* home;
   UIScreen* msg_preview;
+  UIScreen* messages;
+  UIScreen* contacts_screen;
+  UIScreen* gps_screen;
+  UIScreen* settings;
+  UIScreen* radio_stats;
+  UIScreen* reports_screen;
+  UIScreen* telemetry_screen;
   UIScreen* curr;
 
   void userLedHandler();
@@ -58,8 +76,6 @@ class UITask : public AbstractUITask {
   // Button action handlers
   char checkDisplayOn(char c);
   char handleLongPress(char c);
-  char handleDoubleClick(char c);
-  char handleTripleClick(char c);
 
   void setCurrScreen(UIScreen* c);
 
@@ -73,6 +89,34 @@ public:
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
 
   void gotoHomeScreen() { setCurrScreen(home); }
+  void gotoAdvertPage();  // Jump to Advert page on home screen
+  void gotoMessagesHomePage();  // Jump to Messages page on home screen
+  void gotoMessagesScreen() {
+    ((MessagesScreen*)messages)->reset();
+    setCurrScreen(messages);
+  }
+  void gotoContactsScreen() {
+    ((ContactsScreen*)contacts_screen)->reset();
+    setCurrScreen(contacts_screen);
+  }
+  void gotoGPSScreen() {
+    setCurrScreen(gps_screen);
+  }
+  void gotoSettingsScreen() {
+    ((SettingsScreen*)settings)->reset();
+    setCurrScreen(settings);
+  }
+  void gotoRadioStatsScreen() {
+    setCurrScreen(radio_stats);
+  }
+  void gotoReportsScreen() {
+    ((ReportsScreen*)reports_screen)->reset();
+    setCurrScreen(reports_screen);
+  }
+  void gotoTelemetryScreen() {
+    setCurrScreen(telemetry_screen);
+  }
+  MessagesScreen* getMessagesScreen() { return (MessagesScreen*)messages; }
   void showAlert(const char* text, int duration_millis);
   int  getMsgCount() const { return _msgcount; }
   bool hasDisplay() const { return _display != NULL; }
@@ -87,8 +131,16 @@ public:
   }
 
   void toggleBuzzer();
+  bool getBuzzerState() {
+#ifdef PIN_BUZZER
+    return !buzzer.isQuiet();
+#else
+    return false;
+#endif
+  }
   bool getGPSState();
   void toggleGPS();
+  long getSatellitesCount();
 
 
   // from AbstractUITask

@@ -70,17 +70,20 @@ void GxEPDDisplay::startFrame(Color bkg) {
 void GxEPDDisplay::setTextSize(int sz) {
   display_crc.update<int>(sz);
   switch(sz) {
-    case 1:  // Small
-      display.setFont(&FreeSans9pt7b);
+    case 0:  // Extra Small (for top bar labels) - 7pt
+      display.setFont(&FreeMono9pt7b);
       break;
-    case 2:  // Medium Bold
-      display.setFont(&FreeSansBold12pt7b);
+    case 1:  // Small - 9pt
+      display.setFont(&FreeSerif9pt7b);
       break;
-    case 3:  // Large
+    case 2:  // Medium Bold - 12pt
+      display.setFont(&FreeSans12pt7b);
+      break;
+    case 3:  // Large - 18pt
       display.setFont(&FreeSans18pt7b);
       break;
     default:
-      display.setFont(&FreeSans9pt7b);
+      display.setFont(&FreeSerif9pt7b);
       break;
   }
 }
@@ -168,6 +171,13 @@ uint16_t GxEPDDisplay::getTextWidth(const char* str) {
   uint16_t w, h;
   display.getTextBounds(str, 0, 0, &x1, &y1, &w, &h);
   return ceil((w + 1) / scale_x);
+}
+
+uint16_t GxEPDDisplay::getTextHeight(const char* str) {
+  int16_t x1, y1;
+  uint16_t w, h;
+  display.getTextBounds(str, 0, 0, &x1, &y1, &w, &h);
+  return ceil((h + 2) / scale_y);  // +2 for a bit of spacing
 }
 
 void GxEPDDisplay::endFrame() {

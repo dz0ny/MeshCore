@@ -17,16 +17,21 @@ struct NodePrefs {  // persisted to file
   uint8_t multi_acks;
   uint8_t manual_add_contacts;
   float bw;
-  int8_t tx_power_dbm;
+  uint8_t tx_power_dbm;
   uint8_t telemetry_mode_base;
   uint8_t telemetry_mode_loc;
   uint8_t telemetry_mode_env;
   float rx_delay_base;
   uint32_t ble_pin;
   uint8_t  advert_loc_policy;
-  uint8_t  buzzer_quiet;
-  uint8_t  gps_enabled;      // GPS enabled flag (0=disabled, 1=enabled)
-  uint32_t gps_interval;     // GPS read interval in seconds
-  uint8_t autoadd_config;    // bitmask for auto-add contacts config
-  uint8_t client_repeat;
+  // GPS location advertising settings
+  uint8_t gps_loc_advert_enabled;       // 0=off, 1=on
+  uint8_t gps_loc_distance_threshold;   // meters (1-20)
+  uint8_t gps_loc_frequency;            // seconds/10 (30s-300s stored as 3-30)
+  uint8_t gps_loc_guaranteed_interval;  // 0=1min, 1=5min, 2=15min
+  uint8_t gps_loc_accuracy_threshold;   // meters (3-20, GPS accuracy must be better than this)
+  double last_advert_lat, last_advert_lon; // Track last advertised position
+  // UI settings
+  uint8_t buzzer_key_press;             // 0=off, 1=on (buzzer feedback for key presses)
+  uint8_t ui_language;                  // 0=English, 1=Slovenian, 2=Croatian
 };

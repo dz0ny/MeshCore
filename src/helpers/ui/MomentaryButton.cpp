@@ -1,6 +1,6 @@
 #include "MomentaryButton.h"
 
-#define MULTI_CLICK_WINDOW_MS  280
+#define MULTI_CLICK_WINDOW_MS  100
 
 MomentaryButton::MomentaryButton(int8_t pin, int long_press_millis, bool reverse, bool pulldownup, bool multiclick) { 
   _pin = pin;

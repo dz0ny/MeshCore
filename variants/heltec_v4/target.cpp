@@ -24,8 +24,8 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
 #endif
 
 #ifdef DISPLAY_CLASS
-  DISPLAY_CLASS display(&(board.periph_power));
-  MomentaryButton user_btn(PIN_USER_BTN, 1000, true);
+  DISPLAY_CLASS display;
+  MomentaryButton user_btn(PIN_USER_BTN, 1000, true, false, false);
 #endif
 
 bool radio_init() {
@@ -50,7 +50,7 @@ void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr) {
   radio.setCodingRate(cr);
 }
 
-void radio_set_tx_power(int8_t dbm) {
+void radio_set_tx_power(uint8_t dbm) {
   radio.setOutputPower(dbm);
 }
 

@@ -5,14 +5,14 @@
 #include "AbstractUITask.h"
 
 /*------------ Frame Protocol --------------*/
-#define FIRMWARE_VER_CODE 9
+#define FIRMWARE_VER_CODE 8
 
 #ifndef FIRMWARE_BUILD_DATE
-#define FIRMWARE_BUILD_DATE "15 Feb 2026"
+#define FIRMWARE_BUILD_DATE "13 Nov 2025"
 #endif
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "v1.13.0"
+#define FIRMWARE_VERSION "v1.10.0"
 #endif
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -25,6 +25,7 @@
 
 #include "DataStore.h"
 #include "NodePrefs.h"
+#include "MessageStore.h"
 
 #include <RTClib.h>
 #include <helpers/ArduinoHelpers.h>
@@ -82,11 +83,15 @@ struct AdvertPath {
   char    name[32];
   uint32_t recv_timestamp;
   uint8_t path[MAX_PATH_SIZE];
+  int32_t gps_lat, gps_lon;    // 6 decimal places, 0 means no GPS data
 };
 
 class MyMesh : public BaseChatMesh, public DataStoreHost {
 public:
   MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store, AbstractUITask* ui=NULL);
+
+  // Get the message store for UI access
+  MessageStore* getMessageStore() { return &_msg_store; }
 
   void begin(bool has_display);
   void startInterface(BaseSerialInterface &serial);
@@ -94,6 +99,7 @@ public:
   const char *getNodeName();
   NodePrefs *getNodePrefs();
   uint32_t getBLEPin();
+  const uint8_t* getMyPubKey() { return self_id.pub_key; }
 
   void loop();
   void handleCmdFrame(size_t len);
@@ -102,23 +108,27 @@ public:
 
   int  getRecentlyHeard(AdvertPath dest[], int max_num);
 
+  // Public save methods for preferences, channels, and contacts
+  void savePrefs() { _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon); }
+  void saveChannels() { _store->saveChannels(this); }
+  void saveContacts() { _store->saveContacts(this); }
+  bool clearAllFilesExceptSettings() { return _store->clearAllFilesExceptSettings(); }
+
+  // Location advertising callback (must be public for external access)
+  static void onLocationAdvertTrigger(double lat, double lon);
+
 protected:
   float getAirtimeBudgetFactor() const override;
   int getInterferenceThreshold() const override;
   int calcRxDelay(float score, uint32_t air_time) const override;
   uint8_t getExtraAckTransmitCount() const override;
   bool filterRecvFloodPacket(mesh::Packet* packet) override;
-  bool allowPacketForward(const mesh::Packet* packet) override;
 
   void sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis=0) override;
   void sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis=0) override;
 
   void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override;
   bool isAutoAddEnabled() const override;
-  bool shouldAutoAddContactType(uint8_t type) const override;
-  bool shouldOverwriteWhenFull() const override;
-  void onContactsFull() override;
-  void onContactOverwrite(const uint8_t* pub_key) override;
   bool onContactPathRecv(ContactInfo& from, uint8_t* in_path, uint8_t in_path_len, uint8_t* out_path, uint8_t out_path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) override;
   void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) override;
   void onContactPathUpdated(const ContactInfo &contact) override;
@@ -147,6 +157,8 @@ protected:
   uint32_t calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t path_len) const override;
   void onSendTimeout() override;
 
+  bool allowPacketForward(const mesh::Packet *packet) override;
+
   // DataStoreHost methods
   bool onContactLoaded(const ContactInfo& contact) override { return addContact(contact); }
   bool getContactForSave(uint32_t idx, ContactInfo& contact) override { return getContactByIdx(idx, contact); }
@@ -156,9 +168,6 @@ protected:
   void clearPendingReqs() {
     pending_login = pending_status = pending_telemetry = pending_discovery = pending_req = 0;
   }
-
-public:
-  void savePrefs() { _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon); }
 
 private:
   void writeOKFrame();
@@ -177,13 +186,11 @@ private:
 
   void checkCLIRescueCmd();
   void checkSerialInterface();
-  bool isValidClientRepeatFreq(uint32_t f) const;
 
-  // helpers, short-cuts
-  void saveChannels() { _store->saveChannels(this); }
-  void saveContacts() { _store->saveContacts(this); }
-
+  void sendLocationAdvertisement(double lat, double lon);
+  static MyMesh* instance;  // For static callback
   DataStore* _store;
+  MessageStore _msg_store;
   NodePrefs _prefs;
   uint32_t pending_login;
   uint32_t pending_status;

@@ -115,8 +115,24 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     if (id.matches(contacts[i].id)) {  // is from one of our contacts
       from = &contacts[i];
       if (timestamp <= from->last_advert_timestamp) {  // check for replay attacks!!
-        MESH_DEBUG_PRINTLN("onAdvertRecv: Possible replay attack, name: %s", from->name);
-        return;
+        // Calculate how far back in time this timestamp is
+        uint32_t time_diff = from->last_advert_timestamp - timestamp;
+
+        // If timestamp is more than 30 days old, assume RTC was reset (not a replay attack)
+        const uint32_t RTC_RESET_THRESHOLD = 30 * 24 * 3600;  // 30 days in seconds
+
+        if (time_diff > RTC_RESET_THRESHOLD) {
+          MESH_DEBUG_PRINTLN("onAdvertRecv: RTC reset detected for %s, resetting timestamp (diff: %u days)",
+                            from->name, time_diff / (24 * 3600));
+          // Reset the last_advert_timestamp to allow this contact to re-sync
+          from->last_advert_timestamp = 0;
+          // Continue processing this advertisement
+        } else {
+          // Likely a genuine replay attack (timestamp only slightly old)
+          MESH_DEBUG_PRINTLN("onAdvertRecv: Possible replay attack, name: %s, recv_ts: %u, last_ts: %u, diff: %u sec",
+                            from->name, timestamp, from->last_advert_timestamp, time_diff);
+          return;
+        }
       }
       break;
     }

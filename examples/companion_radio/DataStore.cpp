@@ -65,7 +65,6 @@ void DataStore::begin() {
 
 #if defined(ESP32)
   #include <SPIFFS.h>
-  #include <nvs_flash.h>
 #elif defined(RP2040_PLATFORM)
   #include <LittleFS.h>
 #elif defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -173,9 +172,7 @@ bool DataStore::formatFileSystem() {
 #elif defined(RP2040_PLATFORM)
   return LittleFS.format();
 #elif defined(ESP32)
-  bool fs_success = ((fs::SPIFFSFS *)_fs)->format();
-  esp_err_t nvs_err = nvs_flash_erase(); // no need to reinit, will be done by reboot
-  return fs_success && (nvs_err == ESP_OK);
+  return ((fs::SPIFFSFS *)_fs)->format();
 #else
   #error "need to implement format()"
 #endif
@@ -212,7 +209,7 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     file.read((uint8_t *)&_prefs.freq, sizeof(_prefs.freq));                               // 56
     file.read((uint8_t *)&_prefs.sf, sizeof(_prefs.sf));                                   // 60
     file.read((uint8_t *)&_prefs.cr, sizeof(_prefs.cr));                                   // 61
-    file.read((uint8_t *)&_prefs.client_repeat, sizeof(_prefs.client_repeat));             // 62
+    file.read(pad, 1);                                                                     // 62
     file.read((uint8_t *)&_prefs.manual_add_contacts, sizeof(_prefs.manual_add_contacts)); // 63
     file.read((uint8_t *)&_prefs.bw, sizeof(_prefs.bw));                                   // 64
     file.read((uint8_t *)&_prefs.tx_power_dbm, sizeof(_prefs.tx_power_dbm));               // 68
@@ -224,10 +221,16 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     file.read((uint8_t *)&_prefs.multi_acks, sizeof(_prefs.multi_acks));                   // 77
     file.read(pad, 2);                                                                     // 78
     file.read((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));                         // 80
-    file.read((uint8_t *)&_prefs.buzzer_quiet, sizeof(_prefs.buzzer_quiet));               // 84
-    file.read((uint8_t *)&_prefs.gps_enabled, sizeof(_prefs.gps_enabled));                 // 85
-    file.read((uint8_t *)&_prefs.gps_interval, sizeof(_prefs.gps_interval));               // 86
-    file.read((uint8_t *)&_prefs.autoadd_config, sizeof(_prefs.autoadd_config));           // 87
+    file.read((uint8_t *)&_prefs.gps_loc_advert_enabled, sizeof(_prefs.gps_loc_advert_enabled)); // 84
+    file.read((uint8_t *)&_prefs.gps_loc_distance_threshold, sizeof(_prefs.gps_loc_distance_threshold)); // 85
+    file.read((uint8_t *)&_prefs.gps_loc_frequency, sizeof(_prefs.gps_loc_frequency));     // 86
+    file.read((uint8_t *)&_prefs.gps_loc_guaranteed_interval, sizeof(_prefs.gps_loc_guaranteed_interval)); // 87
+    file.read((uint8_t *)&_prefs.gps_loc_accuracy_threshold, sizeof(_prefs.gps_loc_accuracy_threshold)); // 88
+    file.read((uint8_t *)&_prefs.last_advert_lat, sizeof(_prefs.last_advert_lat));         // 89
+    file.read((uint8_t *)&_prefs.last_advert_lon, sizeof(_prefs.last_advert_lon));         // 97
+    file.read((uint8_t *)&_prefs.buzzer_key_press, sizeof(_prefs.buzzer_key_press));       // 105
+    file.read((uint8_t *)&_prefs.ui_language, sizeof(_prefs.ui_language));                 // 106
+    // 107
 
     file.close();
   }
@@ -247,7 +250,7 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.freq, sizeof(_prefs.freq));                               // 56
     file.write((uint8_t *)&_prefs.sf, sizeof(_prefs.sf));                                   // 60
     file.write((uint8_t *)&_prefs.cr, sizeof(_prefs.cr));                                   // 61
-    file.write((uint8_t *)&_prefs.client_repeat, sizeof(_prefs.client_repeat));             // 62
+    file.write(pad, 1);                                                                     // 62
     file.write((uint8_t *)&_prefs.manual_add_contacts, sizeof(_prefs.manual_add_contacts)); // 63
     file.write((uint8_t *)&_prefs.bw, sizeof(_prefs.bw));                                   // 64
     file.write((uint8_t *)&_prefs.tx_power_dbm, sizeof(_prefs.tx_power_dbm));               // 68
@@ -259,10 +262,16 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.multi_acks, sizeof(_prefs.multi_acks));                   // 77
     file.write(pad, 2);                                                                     // 78
     file.write((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));                         // 80
-    file.write((uint8_t *)&_prefs.buzzer_quiet, sizeof(_prefs.buzzer_quiet));               // 84
-    file.write((uint8_t *)&_prefs.gps_enabled, sizeof(_prefs.gps_enabled));                 // 85
-    file.write((uint8_t *)&_prefs.gps_interval, sizeof(_prefs.gps_interval));               // 86
-    file.write((uint8_t *)&_prefs.autoadd_config, sizeof(_prefs.autoadd_config));           // 87
+    file.write((uint8_t *)&_prefs.gps_loc_advert_enabled, sizeof(_prefs.gps_loc_advert_enabled)); // 84
+    file.write((uint8_t *)&_prefs.gps_loc_distance_threshold, sizeof(_prefs.gps_loc_distance_threshold)); // 85
+    file.write((uint8_t *)&_prefs.gps_loc_frequency, sizeof(_prefs.gps_loc_frequency));     // 86
+    file.write((uint8_t *)&_prefs.gps_loc_guaranteed_interval, sizeof(_prefs.gps_loc_guaranteed_interval)); // 87
+    file.write((uint8_t *)&_prefs.gps_loc_accuracy_threshold, sizeof(_prefs.gps_loc_accuracy_threshold)); // 88
+    file.write((uint8_t *)&_prefs.last_advert_lat, sizeof(_prefs.last_advert_lat));         // 89
+    file.write((uint8_t *)&_prefs.last_advert_lon, sizeof(_prefs.last_advert_lon));         // 97
+    file.write((uint8_t *)&_prefs.buzzer_key_press, sizeof(_prefs.buzzer_key_press));       // 105
+    file.write((uint8_t *)&_prefs.ui_language, sizeof(_prefs.ui_language));                 // 106
+    // 107
 
     file.close();
   }
@@ -560,20 +569,14 @@ bool DataStore::putBlobByKey(const uint8_t key[], int key_len, const uint8_t src
   }
   return false; // error
 }
-bool DataStore::deleteBlobByKey(const uint8_t key[], int key_len) {
-  return true; // this is just a stub on NRF52/STM32 platforms
-}
 #else
-inline void makeBlobPath(const uint8_t key[], int key_len, char* path, size_t path_size) {
+uint8_t DataStore::getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) {
+  char path[64];
   char fname[18];
+
   if (key_len > 8) key_len = 8; // just use first 8 bytes (prefix)
   mesh::Utils::toHex(fname, key, key_len);
   sprintf(path, "/bl/%s", fname);
-}
-
-uint8_t DataStore::getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) {
-  char path[64];
-  makeBlobPath(key, key_len, path, sizeof(path));
 
   if (_fs->exists(path)) {
     File f = openRead(_fs, path);
@@ -588,7 +591,11 @@ uint8_t DataStore::getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_b
 
 bool DataStore::putBlobByKey(const uint8_t key[], int key_len, const uint8_t src_buf[], uint8_t len) {
   char path[64];
-  makeBlobPath(key, key_len, path, sizeof(path));
+  char fname[18];
+
+  if (key_len > 8) key_len = 8; // just use first 8 bytes (prefix)
+  mesh::Utils::toHex(fname, key, key_len);
+  sprintf(path, "/bl/%s", fname);
 
   File f = openWrite(_fs, path);
   if (f) {
@@ -600,13 +607,38 @@ bool DataStore::putBlobByKey(const uint8_t key[], int key_len, const uint8_t src
   }
   return false; // error
 }
-
-bool DataStore::deleteBlobByKey(const uint8_t key[], int key_len) {
-  char path[64];
-  makeBlobPath(key, key_len, path, sizeof(path));
-
-  _fs->remove(path);
-  
-  return true; // return true even if file did not exist
-}
 #endif
+
+bool DataStore::clearAllFilesExceptSettings() {
+  // Files to preserve (settings and identity)
+  const char* preserve_files[] = {
+    "/new_prefs",
+    "/node_prefs",
+    "/_main.id"
+  };
+  int preserve_count = sizeof(preserve_files) / sizeof(preserve_files[0]);
+
+  bool success = true;
+
+  // Clear files from contacts/channels filesystem (secondary or primary)
+  FILESYSTEM* ccFS = _getContactsChannelsFS();
+  if (ccFS->exists("/contacts3")) {
+    success = success && ccFS->remove("/contacts3");
+  }
+  if (ccFS->exists("/channels2")) {
+    success = success && ccFS->remove("/channels2");
+  }
+  if (ccFS->exists("/adv_blobs")) {
+    success = success && ccFS->remove("/adv_blobs");
+  }
+
+  // Clear files from primary filesystem (except preserved ones)
+  if (_fs->exists("/messages.dat")) {
+    success = success && _fs->remove("/messages.dat");
+  }
+  if (_fs->exists("/messages")) {
+    success = success && _fs->remove("/messages");
+  }
+
+  return success;
+}

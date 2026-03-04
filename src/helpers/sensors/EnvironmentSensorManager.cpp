@@ -339,6 +339,11 @@ bool EnvironmentSensorManager::querySensors(uint8_t requester_permissions, Cayen
 
   if (requester_permissions & TELEM_PERM_LOCATION && gps_active) {
     telemetry.addGPS(TELEM_CHANNEL_SELF, node_lat, node_lon, node_altitude); // allow lat/lon via telemetry even if no GPS is detected
+    // Add GPS accuracy (HDOP in meters) as analog input on next channel
+    if (_location != NULL && _location->isValid()) {
+      telemetry.addAnalogInput(next_available_channel, _location->getAccuracy());
+      next_available_channel++;
+    }
   }
 
   if (requester_permissions & TELEM_PERM_ENVIRONMENT) {
@@ -582,8 +587,9 @@ void EnvironmentSensorManager::initBasicGPS() {
   } else {
     MESH_DEBUG_PRINTLN("No GPS detected");
   }
-  _location->stop();
-  gps_active = false; //Set GPS visibility off until setting is changed
+  // Enable GPS by default at startup
+  _location->begin();
+  gps_active = true;
 }
 
 // gps code for rak might be moved to MicroNMEALoactionProvider
@@ -674,6 +680,10 @@ bool EnvironmentSensorManager::gpsIsAwake(uint8_t ioPin){
 
 void EnvironmentSensorManager::start_gps() {
   gps_active = true;
+
+  // Reset location advertiser so first fix after GPS enable triggers an advertisement
+  _locAdvertiser.reset();
+
   #ifdef RAK_WISBLOCK_GPS
     pinMode(gpsResetPin, OUTPUT);
     digitalWrite(gpsResetPin, HIGH);
@@ -718,6 +728,31 @@ void EnvironmentSensorManager::loop() {
       MESH_DEBUG_PRINTLN("lat %f lon %f", node_lat, node_lon);
       node_altitude = ((double)_location->getAltitude()) / 1000.0;
       MESH_DEBUG_PRINTLN("lat %f lon %f alt %f", node_lat, node_lon, node_altitude);
+
+      // Store last valid position for use when GPS signal is lost
+      _last_valid_lat = node_lat;
+      _last_valid_lon = node_lon;
+      _has_last_valid_position = true;
+
+      // Get GPS accuracy in meters
+      double accuracy = _location->getAccuracy();
+
+      // Check if we should trigger a location advertisement
+      // shouldAdvertise will check both current position (for distance triggers)
+      // and guaranteed interval (which may use last known position)
+      if (_locAdvertCallback && _locAdvertiser.shouldAdvertise(node_lat, node_lon, accuracy)) {
+        _locAdvertiser.recordAdvertisement(node_lat, node_lon);
+        _locAdvertCallback(node_lat, node_lon);
+      }
+    } else {
+      // GPS signal lost or invalid
+      // Still check guaranteed interval with last known position
+      if (_has_last_valid_position && _locAdvertCallback) {
+        if (_locAdvertiser.shouldAdvertise(_last_valid_lat, _last_valid_lon, 0.0)) {
+          _locAdvertiser.recordAdvertisement(_last_valid_lat, _last_valid_lon);
+          _locAdvertCallback(_last_valid_lat, _last_valid_lon);
+        }
+      }
     }
     #else
     if (_location->isValid()) {
@@ -726,6 +761,31 @@ void EnvironmentSensorManager::loop() {
       MESH_DEBUG_PRINTLN("lat %f lon %f", node_lat, node_lon);
       node_altitude = ((double)_location->getAltitude()) / 1000.0;
       MESH_DEBUG_PRINTLN("lat %f lon %f alt %f", node_lat, node_lon, node_altitude);
+
+      // Store last valid position for use when GPS signal is lost
+      _last_valid_lat = node_lat;
+      _last_valid_lon = node_lon;
+      _has_last_valid_position = true;
+
+      // Get GPS accuracy in meters
+      double accuracy = _location->getAccuracy();
+
+      // Check if we should trigger a location advertisement
+      // shouldAdvertise will check both current position (for distance triggers)
+      // and guaranteed interval (which may use last known position)
+      if (_locAdvertCallback && _locAdvertiser.shouldAdvertise(node_lat, node_lon, accuracy)) {
+        _locAdvertiser.recordAdvertisement(node_lat, node_lon);
+        _locAdvertCallback(node_lat, node_lon);
+      }
+    } else {
+      // GPS signal lost or invalid
+      // Still check guaranteed interval with last known position
+      if (_has_last_valid_position && _locAdvertCallback) {
+        if (_locAdvertiser.shouldAdvertise(_last_valid_lat, _last_valid_lon, 0.0)) {
+          _locAdvertiser.recordAdvertisement(_last_valid_lat, _last_valid_lon);
+          _locAdvertCallback(_last_valid_lat, _last_valid_lon);
+        }
+      }
     }
     #endif
     }

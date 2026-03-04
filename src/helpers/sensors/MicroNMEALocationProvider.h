@@ -95,13 +95,23 @@ public :
     void syncTime() override { nmea.clear(); LocationProvider::syncTime(); }
     long getLatitude() override { return nmea.getLatitude(); }
     long getLongitude() override { return nmea.getLongitude(); }
-    long getAltitude() override { 
+    long getAltitude() override {
         long alt = 0;
         nmea.getAltitude(alt);
         return alt;
     }
     long satellitesCount() override { return nmea.getNumSatellites(); }
     bool isValid() override { return nmea.isValid(); }
+    float getAccuracy() override {
+        // HDOP is returned in tenths (e.g., 1.1 = 11)
+        // Convert to meters: HDOP * 5 gives rough horizontal accuracy
+        // Typical HDOP values: 1.0 = excellent, 2.0 = good, 5.0 = fair, >10 = poor
+        uint8_t hdop_tenths = nmea.getHDOP();
+        if (hdop_tenths == 0 || !isValid()) {
+            return 100.0;  // No fix or no data
+        }
+        return (hdop_tenths / 10.0) * 5.0;  // Convert to meters
+    }
 
     long getTimestamp() override { 
         DateTime dt(nmea.getYear(), nmea.getMonth(),nmea.getDay(),nmea.getHour(),nmea.getMinute(),nmea.getSecond());

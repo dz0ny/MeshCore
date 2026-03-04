@@ -1,6 +1,10 @@
 #include "UITask.h"
 #include <Arduino.h>
 #include <helpers/CommonCLI.h>
+#include <RTClib.h>
+#include "MyMesh.h"  // for stats
+
+extern MyMesh the_mesh;
 
 #define AUTO_OFF_MILLIS      20000  // 20 seconds
 #define BOOT_SCREEN_MILLIS   4000   // 4 seconds
@@ -61,22 +65,62 @@ void UITask::renderCurrScreen() {
     _display->setCursor((_display->width() - typeWidth) / 2, 35);
     _display->print(node_type);
   } else {  // home screen
-    // node name
-    _display->setCursor(0, 0);
+    // Header lines:
+    // 1) Node name only
     _display->setTextSize(1);
     _display->setColor(DisplayDriver::GREEN);
+    _display->setCursor(0, 0);
     _display->print(_node_prefs->node_name);
 
-    // freq / sf
-    _display->setCursor(0, 20);
+    // 2) LoRa params on the next line
     _display->setColor(DisplayDriver::YELLOW);
-    sprintf(tmp, "FREQ: %06.3f SF%d", _node_prefs->freq, _node_prefs->sf);
+    _display->setCursor(0, 14);
+    char params[64];
+    sprintf(params, "F:%06.3f SF%d BW:%03.2f CR:%d", _node_prefs->freq, _node_prefs->sf, _node_prefs->bw, _node_prefs->cr);
+    _display->print(params);
+
+    // repeater stats (below current stats)
+    RepeaterStats stats;
+    the_mesh.getRepeaterStats(stats);
+
+    // Line 1: battery and queue
+    _display->setColor(DisplayDriver::LIGHT);
+    _display->setCursor(0, 26);
+    float batt_v = (float)stats.batt_milli_volts / 1000.0f;
+    sprintf(tmp, "BAT: %0.2fV  Q:%u", batt_v, (unsigned)stats.curr_tx_queue_len);
     _display->print(tmp);
 
-    // bw / cr
-    _display->setCursor(0, 30);
-    sprintf(tmp, "BW: %03.2f CR: %d", _node_prefs->bw, _node_prefs->cr);
+    // Line 2: RF instant metrics
+    _display->setCursor(0, 40);
+    float snr = (float)stats.last_snr / 4.0f;
+    sprintf(tmp, "RSSI:%d  SNR:%0.1f  NF:%d", (int)stats.last_rssi, snr, (int)stats.noise_floor);
     _display->print(tmp);
+
+    // If there is room, show flood + duplicate + neighbours (compact)
+    if (_display->height() >= 64) {
+      _display->setCursor(0, 52);
+      uint16_t n_nei = the_mesh.getActiveNeighboursCount();
+      // Compact abbreviations: FL <tx>/<rx>  DP <direct>/<flood>  N <neighbours>
+      sprintf(tmp, "FL %lu/%lu  DP %u/%u  N %u",
+              (unsigned long)stats.n_sent_flood,
+              (unsigned long)stats.n_recv_flood,
+              (unsigned)stats.n_direct_dups,
+              (unsigned)stats.n_flood_dups,
+              (unsigned)n_nei);
+      _display->print(tmp);
+    }
+
+    // If there is even more room, show current time
+    if (_display->height() >= 76) {
+      uint32_t now = the_mesh.getRTCClock()->getCurrentTime();
+      DateTime dt = DateTime(now);
+      _display->setCursor(0, 64);
+      _display->setColor(DisplayDriver::YELLOW);
+      sprintf(tmp, "Time: %02d:%02d:%02d %02d/%02d/%d",
+              dt.hour(), dt.minute(), dt.second(),
+              dt.day(), dt.month(), dt.year());
+      _display->print(tmp);
+    }
   }
 }
 
@@ -87,9 +131,11 @@ void UITask::loop() {
     if (btnState != _prevBtnState) {
       if (btnState == LOW) {  // pressed?
         if (_display->isOn()) {
-          // TODO: any action ?
+          // Trigger immediate refresh
+          _next_refresh = 0;
         } else {
           _display->turnOn();
+          _next_refresh = 0;  // Trigger immediate refresh when turning on
         }
         _auto_off = millis() + AUTO_OFF_MILLIS;   // extend auto-off timer
       }
@@ -105,7 +151,7 @@ void UITask::loop() {
       renderCurrScreen();
       _display->endFrame();
 
-      _next_refresh = millis() + 1000;   // refresh every second
+      _next_refresh = millis() + 60000;   // refresh every minute
     }
     if (millis() > _auto_off) {
       _display->turnOff();

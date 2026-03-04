@@ -17,6 +17,7 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   uint32_t _pin_code;
   unsigned long _last_write;
   unsigned long adv_restart_time;
+  void (*_onConnectCallback)();
 
   struct Frame {
     uint8_t len;
@@ -59,15 +60,11 @@ public:
     _last_write = 0;
     last_conn_id = 0;
     send_queue_len = recv_queue_len = 0;
+    _onConnectCallback = NULL;
   }
 
-  /**
-   * init the BLE interface.
-   * @param prefix   a prefix for the device name
-   * @param name  IN/OUT - a name for the device (combined with prefix). If "@@MAC", is modified and returned
-   * @param pin_code   the BLE security pin
-   */
-  void begin(const char* prefix, char* name, uint32_t pin_code);
+  void setOnConnectCallback(void (*callback)()) { _onConnectCallback = callback; }
+  void begin(const char* device_name, uint32_t pin_code);
 
   // BaseSerialInterface methods
   void enable() override;
