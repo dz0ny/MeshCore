@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "MeshLPPTypes.h"
 
 #define LPP_DIGITAL_INPUT 0         // 1 byte
 #define LPP_DIGITAL_OUTPUT 1        // 1 byte
@@ -48,6 +49,7 @@
 #define LPP_PERCENTAGE_MULT 1
 #define LPP_ALTITUDE_MULT 1
 #define LPP_POWER_MULT 1
+#define LPP_SPEED_MULT 100
 #define LPP_DISTANCE_MULT 1000
 #define LPP_ENERGY_MULT 1000
 #define LPP_DIRECTION_MULT 1
@@ -120,6 +122,22 @@ public:
     watts = getFloat(&_buf[_pos], 2, 1, false); _pos += 2;
     return _pos <= _len;
   }
+  bool readAnalogInput(float& value) {
+    value = getFloat(&_buf[_pos], 2, 100, true); _pos += 2;
+    return _pos <= _len;
+  }
+  bool readGenericSensor(float& value) {
+    value = getFloat(&_buf[_pos], 4, 1, false); _pos += 4;
+    return _pos <= _len;
+  }
+  bool readFrequency(float& value) {
+    value = getFloat(&_buf[_pos], 4, 1, false); _pos += 4;
+    return _pos <= _len;
+  }
+  bool readSpeed(float& meters_per_second) {
+    meters_per_second = getFloat(&_buf[_pos], 2, LPP_SPEED_MULT, false); _pos += 2;
+    return _pos <= _len;
+  }
   bool readTemperature(float& degrees_c) {
     degrees_c = getFloat(&_buf[_pos], 2, 10, true); _pos += 2;
     return _pos <= _len;
@@ -134,6 +152,38 @@ public:
   }
   bool readAltitude(float& m) {
     m = getFloat(&_buf[_pos], 2, 1, true); _pos += 2;
+    return _pos <= _len;
+  }
+  bool readLuminosity(float& lux) {
+    lux = getFloat(&_buf[_pos], 2, 1, false); _pos += 2;
+    return _pos <= _len;
+  }
+  bool readPercentage(float& pct) {
+    pct = getFloat(&_buf[_pos], 1, 1, false); _pos += 1;
+    return _pos <= _len;
+  }
+  bool readDistance(float& m) {
+    m = getFloat(&_buf[_pos], 4, 1000, false); _pos += 4;
+    return _pos <= _len;
+  }
+  bool readEnergy(float& kwh) {
+    kwh = getFloat(&_buf[_pos], 4, 1000, false); _pos += 4;
+    return _pos <= _len;
+  }
+  bool readDirection(float& degrees) {
+    degrees = getFloat(&_buf[_pos], 2, 1, false); _pos += 2;
+    return _pos <= _len;
+  }
+  bool readUnixTime(float& value) {
+    value = getFloat(&_buf[_pos], 4, 1, false); _pos += 4;
+    return _pos <= _len;
+  }
+  bool readSwitch(float& value) {
+    value = getFloat(&_buf[_pos], 1, 1, false); _pos += 1;
+    return _pos <= _len;
+  }
+  bool readConcentration(float& value) {
+    value = getFloat(&_buf[_pos], 2, 1, false); _pos += 2;
     return _pos <= _len;
   }
 
@@ -163,6 +213,7 @@ public:
       case LPP_ALTITUDE:
       case LPP_VOLTAGE:
       case LPP_CURRENT:
+      case LPP_SPEED:
       case LPP_DIRECTION:
       case LPP_POWER:
         _pos += 2; break;
@@ -190,6 +241,17 @@ public:
       _buf[_len++] = channel;
       _buf[_len++] = LPP_VOLTAGE;
       uint16_t value = voltage * 100;
+      write(value);
+      return true;
+    }
+    return false;
+  }
+
+  bool writeSpeed(uint8_t channel, float meters_per_second) {
+    if (_len + 4 <= _max_len) {
+      _buf[_len++] = channel;
+      _buf[_len++] = LPP_SPEED;
+      uint16_t value = meters_per_second * LPP_SPEED_MULT;
       write(value);
       return true;
     }

@@ -334,7 +334,7 @@ bool EnvironmentSensorManager::begin() {
   return true;
 }
 
-bool EnvironmentSensorManager::querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) {
+bool EnvironmentSensorManager::querySensors(uint8_t requester_permissions, MeshCayenneLPP& telemetry) {
   next_available_channel = TELEM_CHANNEL_SELF + 1;
 
   if (requester_permissions & TELEM_PERM_LOCATION && gps_active) {

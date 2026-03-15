@@ -129,6 +129,16 @@ Gets information about the node, possibly including the following:
 
 Not defined in `BaseChatMesh`. Sensor- and application-specific request payloads may be implemented by higher-level firmware.
 
+For `simple_sensor` firmware, the telemetry response body is a CayenneLPP-compatible stream built by the sensor role. It contains local onboard sensor readings first, followed by any appended application-specific telemetry.
+
+On ESP32 `simple_sensor` builds with BTHome discovery enabled, telemetry may also include values from selected unencrypted BTHome devices. Numeric values, binary states, button events, and dimmer steps are appended after local sensors in target order using the closest supported CayenneLPP field types, up to the remaining telemetry channel budget. `text` (`0x53`) and `raw` (`0x54`) objects are discarded.
+
+MeshCore may encode wind speed and gust using a local custom LPP type:
+
+| Type value | Name        | Size | Encoding |
+|------------|-------------|------|----------|
+| `0x81`     | `LPP_SPEED` | 2    | Unsigned, `0.01 m/s` |
+
 ### Get Telemetry
 
 Not defined in `BaseChatMesh`.

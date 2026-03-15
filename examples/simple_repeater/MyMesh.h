@@ -105,7 +105,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
 #if MAX_NEIGHBOURS
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
-  CayenneLPP telemetry;
+  MeshCayenneLPP telemetry;
   unsigned long set_radio_at, revert_radio_at;
   float pending_freq;
   float pending_bw;

@@ -910,6 +910,29 @@ region save
 
 ---
 
+#### Manage BTHome discovery (ESP32 `simple_sensor` only)
+**Usage:**
+- `bthome on`
+- `bthome off`
+- `bthome status`
+- `bthome list`
+- `bthome add <index>`
+- `bthome rm <index>`
+
+**Parameters:**
+- `index`: Device index from `bthome list`
+
+**Notes:**
+- Selected BTHome devices are limited by the discovered-device cache and the remaining telemetry channel budget after local sensors.
+- Only unencrypted BTHome advertisements are accepted as a target.
+- BLE scanning starts automatically while `bthome` is enabled.
+- The scanner caches nearby BTHome devices in RAM only; selected targets and `enabled` are persisted. Targets are saved as resolved MAC addresses.
+- `bthome list` returns the found device list with indexes, MAC addresses, and any fresh decoded BTHome values that fit in the reply, including binary states and recent button or dimmer events.
+- `bthome add <index>` adds a device from the current cache to the selected target set. `bthome rm <index>` removes one selected device.
+- When enabled and targets are set, BTHome numeric values, binary states, button events, and dimmer steps are appended to the node telemetry after local sensors in target order using the closest supported CayenneLPP field types. `text` and `raw` objects are ignored.
+
+---
+
 ### Bridge (When bridge support is compiled in)
 
 #### View the compiled bridge type

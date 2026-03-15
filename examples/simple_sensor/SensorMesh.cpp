@@ -1,4 +1,5 @@
 #include "SensorMesh.h"
+#include <helpers/sensors/LPPDataHelpers.h>
 
 /* ------------------------------ Config -------------------------------- */
 
@@ -63,6 +64,10 @@
 
 #define ALERT_ACK_EXPIRY_MILLIS         8000   // wait 8 secs for ACKs to alert messages
 
+#define BTHOME_CONFIG_FILE "/bthome_cfg"
+#define BTHOME_CONFIG_MAGIC 0x42544831UL
+#define BTHOME_CONFIG_VERSION 3
+
 static File openAppend(FILESYSTEM* _fs, const char* fname) {
   #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
     return _fs->open(fname, FILE_O_WRITE);
@@ -100,6 +105,7 @@ static uint8_t getDataSize(uint8_t type) {
       case LPP_ALTITUDE:
       case LPP_VOLTAGE:
       case LPP_CURRENT:
+      case LPP_SPEED:
       case LPP_DIRECTION:
       case LPP_POWER:
         return 2;
@@ -116,6 +122,7 @@ static uint32_t getMultiplier(uint8_t type) {
       case LPP_VOLTAGE:
       case LPP_ANALOG_INPUT:
       case LPP_ANALOG_OUTPUT:
+      case LPP_SPEED:
         return 100;
       case LPP_TEMPERATURE:
       case LPP_BAROMETRIC_PRESSURE:
@@ -170,16 +177,34 @@ static uint8_t putFloat(uint8_t * dest, float value, uint8_t size, uint32_t mult
   return size;
 }
 
+void SensorMesh::buildTelemetry(uint8_t requester_permissions) {
+  telemetry.reset();
+  telemetry.addVoltage(TELEM_CHANNEL_SELF, (float) board.getBattMilliVolts() / 1000.0f);
+  sensors.querySensors(requester_permissions, telemetry);
+  _bthome.appendTelemetry(telemetry, getNextTelemetryChannel(), BTHomeScanner::DEFAULT_FRESHNESS_MS);
+}
+
+uint8_t SensorMesh::getNextTelemetryChannel() {
+  LPPReader reader(telemetry.getBuffer(), telemetry.getSize());
+  uint8_t channel = 0;
+  uint8_t type = 0;
+  uint8_t max_channel = 0;
+  while (reader.readHeader(channel, type)) {
+    if (channel > max_channel) {
+      max_channel = channel;
+    }
+    reader.skipData(type);
+  }
+  return max_channel + 1;
+}
+
 uint8_t SensorMesh::handleRequest(uint8_t perms, uint32_t sender_timestamp, uint8_t req_type, uint8_t* payload, size_t payload_len) {
   memcpy(reply_data, &sender_timestamp, 4);   // reflect sender_timestamp back in response packet (kind of like a 'tag')
 
   if (req_type == REQ_TYPE_GET_TELEMETRY_DATA) {  // allow all
     uint8_t perm_mask = ~(payload[0]);    // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
 
-    telemetry.reset();
-    telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
-    // query other sensors -- target specific
-    sensors.querySensors(0xFF & perm_mask, telemetry);  // allow all telemetry permissions for admin or guest
+    buildTelemetry(0xFF & perm_mask);  // allow all telemetry permissions for admin or guest
     // TODO: let requester know permissions they have:  telemetry.addPresence(TELEM_CHANNEL_SELF, perms);
 
     uint8_t tlen = telemetry.getSize();
@@ -390,6 +415,10 @@ void SensorMesh::handleCommand(uint32_t sender_timestamp, char* command, char* r
     return;   // command has been handled
   }
 
+  if (handleBTHomeCommand(sender_timestamp, command, reply)) {
+    return;
+  }
+
   // handle sensor-specific CLI commands
   if (memcmp(command, "setperm ", 8) == 0) {   // format:  setperm {pubkey-hex} {permissions-int8}
     char* hex = &command[8];
@@ -446,6 +475,63 @@ void SensorMesh::handleCommand(uint32_t sender_timestamp, char* command, char* r
   } else{
     _cli.handleCommand(sender_timestamp, command, reply);  // common CLI commands
   }
+}
+
+bool SensorMesh::handleBTHomeCommand(uint32_t sender_timestamp, char* command, char* reply) {
+  if (memcmp(command, "bthome", 6) != 0 || (command[6] != 0 && command[6] != ' ')) {
+    return false;
+  }
+
+  if (strcmp(command, "bthome on") == 0) {
+    _bthome.setEnabled(true);
+    saveBTHomeConfig();
+    strcpy(reply, "ok");
+  } else if (strcmp(command, "bthome off") == 0) {
+    _bthome.setEnabled(false);
+    saveBTHomeConfig();
+    strcpy(reply, "ok");
+  } else if (strcmp(command, "bthome status") == 0) {
+    _bthome.formatStatus(reply, 160, BTHomeScanner::DEFAULT_FRESHNESS_MS);
+  } else if (strcmp(command, "bthome list") == 0) {
+    _bthome.formatDeviceList(reply, 160, BTHomeScanner::DEFAULT_FRESHNESS_MS);
+    if (sender_timestamp == 0) {
+      _bthome.printDevices(Serial, BTHomeScanner::DEFAULT_FRESHNESS_MS);
+    }
+  } else if (memcmp(command, "bthome add ", 11) == 0) {
+    const char* index_text = &command[11];
+    char* end = nullptr;
+    long index = strtol(index_text, &end, 10);
+    uint8_t mac[6];
+    if (end == index_text || *end != 0 || index < 0 || index > 255) {
+      strcpy(reply, "Err - bad index");
+    } else if (!_bthome.getDeviceMacByIndex((uint8_t) index, mac)) {
+      strcpy(reply, "Err - unknown index");
+    } else if (_bthome.isKnownEncrypted(mac)) {
+      strcpy(reply, "Err - encrypted");
+    } else if (!_bthome.addTargetMac(mac)) {
+      strcpy(reply, "Err - target full");
+    } else {
+      saveBTHomeConfig();
+      strcpy(reply, "ok");
+    }
+  } else if (memcmp(command, "bthome rm ", 10) == 0) {
+    char* end = nullptr;
+    long index = strtol(&command[10], &end, 10);
+    uint8_t mac[6];
+    if (end == &command[10] || *end != 0 || index < 0 || index > 255) {
+      strcpy(reply, "Err - bad index");
+    } else if (!_bthome.getDeviceMacByIndex((uint8_t) index, mac)) {
+      strcpy(reply, "Err - unknown index");
+    } else if (!_bthome.removeTargetMac(mac)) {
+      strcpy(reply, "Err - not targeted");
+    } else {
+      saveBTHomeConfig();
+      strcpy(reply, "ok");
+    }
+  } else {
+    strcpy(reply, "bthome on|off|status|list|add <index>|rm <index>");
+  }
+  return true;
 }
 
 void SensorMesh::onAnonDataRecv(mesh::Packet* packet, const uint8_t* secret, const mesh::Identity& sender, uint8_t* data, size_t len) {
@@ -731,11 +817,117 @@ SensorMesh::SensorMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::Millise
   _prefs.advert_loc_policy = ADVERT_LOC_PREFS;
 }
 
+void SensorMesh::loadBTHomeConfig() {
+  struct LegacyBTHomeConfigV1File {
+    uint32_t magic;
+    uint8_t version;
+    uint8_t enabled;
+    uint8_t has_target;
+    uint8_t reserved;
+    uint8_t target_mac[6];
+  };
+
+  struct LegacyBTHomeConfigV2File {
+    uint32_t magic;
+    uint8_t version;
+    uint8_t enabled;
+    uint8_t target_count;
+    uint8_t reserved;
+    uint8_t target_macs[4][6];
+  };
+
+  BTHomeConfigFile cfg;
+  memset(&cfg, 0, sizeof(cfg));
+  LegacyBTHomeConfigV1File legacy_v1_cfg;
+  memset(&legacy_v1_cfg, 0, sizeof(legacy_v1_cfg));
+  LegacyBTHomeConfigV2File legacy_v2_cfg;
+  memset(&legacy_v2_cfg, 0, sizeof(legacy_v2_cfg));
+
+#if defined(RP2040_PLATFORM)
+  File file = _fs->open(BTHOME_CONFIG_FILE, "r");
+#else
+  File file = _fs->open(BTHOME_CONFIG_FILE);
+#endif
+  if (!file) {
+    _bthome.setEnabled(false);
+    _bthome.clearTargetMacs();
+    return;
+  }
+
+  size_t loaded = file.read((uint8_t*) &cfg, sizeof(cfg));
+  file.close();
+
+  _bthome.setEnabled(false);
+  _bthome.clearTargetMacs();
+
+  if (loaded >= sizeof(cfg) && cfg.magic == BTHOME_CONFIG_MAGIC && cfg.version == BTHOME_CONFIG_VERSION) {
+    _bthome.setEnabled(cfg.enabled != 0);
+    uint8_t count = min(cfg.target_count, BTHomeScanner::MAX_TARGETS);
+    for (uint8_t i = 0; i < count; i++) {
+      _bthome.addTargetMac(cfg.target_macs[i]);
+    }
+    return;
+  }
+
+  memcpy(&legacy_v2_cfg, &cfg, min((size_t) loaded, sizeof(legacy_v2_cfg)));
+  if (loaded >= sizeof(legacy_v2_cfg) && legacy_v2_cfg.magic == BTHOME_CONFIG_MAGIC && legacy_v2_cfg.version == 2) {
+    _bthome.setEnabled(legacy_v2_cfg.enabled != 0);
+    uint8_t count = min(legacy_v2_cfg.target_count, (uint8_t) 4);
+    for (uint8_t i = 0; i < count; i++) {
+      _bthome.addTargetMac(legacy_v2_cfg.target_macs[i]);
+    }
+    return;
+  }
+
+  memcpy(&legacy_v1_cfg, &cfg, min((size_t) loaded, sizeof(legacy_v1_cfg)));
+  if (loaded >= sizeof(legacy_v1_cfg) && legacy_v1_cfg.magic == BTHOME_CONFIG_MAGIC && legacy_v1_cfg.version == 1) {
+    _bthome.setEnabled(legacy_v1_cfg.enabled != 0);
+    if (legacy_v1_cfg.has_target) {
+      _bthome.addTargetMac(legacy_v1_cfg.target_mac);
+    }
+  }
+}
+
+void SensorMesh::saveBTHomeConfig() {
+  if (_fs == nullptr) {
+    return;
+  }
+
+  BTHomeConfigFile cfg;
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.magic = BTHOME_CONFIG_MAGIC;
+  cfg.version = BTHOME_CONFIG_VERSION;
+  cfg.enabled = _bthome.isEnabled() ? 1 : 0;
+  cfg.target_count = _bthome.getTargetCount();
+  for (uint8_t i = 0; i < cfg.target_count; i++) {
+    uint8_t target_mac[6];
+    if (_bthome.getTargetMac(i, target_mac)) {
+      memcpy(cfg.target_macs[i], target_mac, sizeof(cfg.target_macs[i]));
+    }
+  }
+
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  _fs->remove(BTHOME_CONFIG_FILE);
+  File file = _fs->open(BTHOME_CONFIG_FILE, FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+  File file = _fs->open(BTHOME_CONFIG_FILE, "w");
+#else
+  File file = _fs->open(BTHOME_CONFIG_FILE, "w", true);
+#endif
+  if (!file) {
+    return;
+  }
+  file.write((uint8_t*) &cfg, sizeof(cfg));
+  file.close();
+}
+
 void SensorMesh::begin(FILESYSTEM* fs) {
   mesh::Mesh::begin();
   _fs = fs;
   // load persisted prefs
   _cli.loadPrefs(_fs);
+  _bthome.begin();
+  loadBTHomeConfig();
 
   acl.load(_fs, self_id);
 
@@ -866,6 +1058,7 @@ bool  SensorMesh::getGPS(uint8_t channel, float& lat, float& lon, float& alt) {
 
 void SensorMesh::loop() {
   mesh::Mesh::loop();
+  _bthome.loop();
 
   if (next_flood_advert && millisHasNowPassed(next_flood_advert)) {
     mesh::Packet* pkt = createSelfAdvert();
@@ -895,10 +1088,7 @@ void SensorMesh::loop() {
 
   uint32_t curr = getRTCClock()->getCurrentTime();
   if (curr >= last_read_time + SENSOR_READ_INTERVAL_SECS) {
-    telemetry.reset();
-    telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
-    // query other sensors -- target specific
-    sensors.querySensors(0xFF, telemetry);  // allow all telemetry permissions
+    buildTelemetry(0xFF);
 
     onSensorDataRead();
 

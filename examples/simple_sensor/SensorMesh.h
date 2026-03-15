@@ -4,6 +4,7 @@
 #include <Mesh.h>
 
 #include "TimeSeriesData.h"
+#include "BTHomeScanner.h"
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
 #include <InternalFileSystem.h>
@@ -130,14 +131,24 @@ protected:
   virtual bool handleIncomingMsg(ClientInfo& from, uint32_t timestamp, uint8_t* data, uint8_t flags, size_t len);
   void sendAckTo(const ClientInfo& dest, uint32_t ack_hash, uint8_t path_hash_size=1);
 private:
+  struct BTHomeConfigFile {
+    uint32_t magic;
+    uint8_t version;
+    uint8_t enabled;
+    uint8_t target_count;
+    uint8_t reserved;
+    uint8_t target_macs[BTHomeScanner::MAX_TARGETS][6];
+  };
+
   FILESYSTEM* _fs;
   unsigned long next_local_advert, next_flood_advert;
   NodePrefs _prefs;
   ClientACL  acl;
   CommonCLI _cli;
+  BTHomeScanner _bthome;
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   unsigned long dirty_contacts_expiry;
-  CayenneLPP telemetry;
+  MeshCayenneLPP telemetry;
   uint32_t last_read_time;
   int matching_peer_indexes[MAX_SEARCH_RESULTS];
   int num_alert_tasks;
@@ -151,6 +162,11 @@ private:
   uint8_t handleLoginReq(const mesh::Identity& sender, const uint8_t* secret, uint32_t sender_timestamp, const uint8_t* data, bool is_flood);
   uint8_t handleRequest(uint8_t perms, uint32_t sender_timestamp, uint8_t req_type, uint8_t* payload, size_t payload_len);
   mesh::Packet* createSelfAdvert();
+  void buildTelemetry(uint8_t requester_permissions);
+  uint8_t getNextTelemetryChannel();
+  bool handleBTHomeCommand(uint32_t sender_timestamp, char* command, char* reply);
+  void loadBTHomeConfig();
+  void saveBTHomeConfig();
 
   void sendAlert(const ClientInfo* c, Trigger* t);
 

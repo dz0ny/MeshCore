@@ -47,7 +47,7 @@ public:
   EnvironmentSensorManager(){};
   #endif
   bool begin() override;
-  bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) override;
+  bool querySensors(uint8_t requester_permissions, MeshCayenneLPP& telemetry) override;
   #if ENV_INCLUDE_GPS
   void loop() override;
   #endif

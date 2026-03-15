@@ -103,7 +103,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   int next_client_idx;  // for round-robin polling
   int next_post_idx;
   PostInfo posts[MAX_UNSYNCED_POSTS];   // cyclic queue
-  CayenneLPP telemetry;
+  MeshCayenneLPP telemetry;
   unsigned long set_radio_at, revert_radio_at;
   float pending_freq;
   float pending_bw;

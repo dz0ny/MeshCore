@@ -1,6 +1,6 @@
 #pragma once
 
-#include <CayenneLPP.h>
+#include "MeshCayenneLPP.h"
 #include "sensors/LocationProvider.h"
 
 #define TELEM_PERM_BASE         0x01   // 'base' permission includes battery
@@ -16,7 +16,7 @@ public:
 
   SensorManager() { node_lat = 0; node_lon = 0; node_altitude = 0; }
   virtual bool begin() { return false; }
-  virtual bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) { return false; }
+  virtual bool querySensors(uint8_t requester_permissions, MeshCayenneLPP& telemetry) { return false; }
   virtual void loop() { }
   virtual int getNumSettings() const { return 0; }
   virtual const char* getSettingName(int i) const { return NULL; }

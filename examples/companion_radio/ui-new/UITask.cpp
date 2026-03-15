@@ -141,7 +141,7 @@ class HomeScreen : public UIScreen {
 #endif
   }
 
-  CayenneLPP sensors_lpp;
+  MeshCayenneLPP sensors_lpp;
   int sensors_nb = 0;
   bool sensors_scroll = false;
   int sensors_scroll_offset = 0;
@@ -353,9 +353,25 @@ public:
             r.readVoltage(v);
             strcpy(name, "voltage"); sprintf(buf, "%6.2f", v);
             break;
+          case LPP_ANALOG_INPUT:
+            r.readAnalogInput(v);
+            strcpy(name, "analog"); sprintf(buf, "%.2f", v);
+            break;
+          case LPP_GENERIC_SENSOR:
+            r.readGenericSensor(v);
+            strcpy(name, "generic"); sprintf(buf, "%.0f", v);
+            break;
           case LPP_CURRENT:
             r.readCurrent(v);
             strcpy(name, "current"); sprintf(buf, "%.3f", v);
+            break;
+          case LPP_FREQUENCY:
+            r.readFrequency(v);
+            strcpy(name, "freq"); sprintf(buf, "%.0f", v);
+            break;
+          case LPP_SPEED:
+            r.readSpeed(v);
+            strcpy(name, "speed"); sprintf(buf, "%.2f", v);
             break;
           case LPP_TEMPERATURE:
             r.readTemperature(v);
@@ -369,13 +385,45 @@ public:
             r.readPressure(v);
             strcpy(name, "pressure"); sprintf(buf, "%.2f", v);
             break;
+          case LPP_LUMINOSITY:
+            r.readLuminosity(v);
+            strcpy(name, "light"); sprintf(buf, "%.0f", v);
+            break;
+          case LPP_PERCENTAGE:
+            r.readPercentage(v);
+            strcpy(name, "percent"); sprintf(buf, "%.0f", v);
+            break;
           case LPP_ALTITUDE:
             r.readAltitude(v);
             strcpy(name, "altitude"); sprintf(buf, "%.0f", v);
             break;
+          case LPP_DISTANCE:
+            r.readDistance(v);
+            strcpy(name, "distance"); sprintf(buf, "%.2f", v);
+            break;
+          case LPP_DIRECTION:
+            r.readDirection(v);
+            strcpy(name, "direction"); sprintf(buf, "%.0f", v);
+            break;
+          case LPP_UNIXTIME:
+            r.readUnixTime(v);
+            strcpy(name, "time"); sprintf(buf, "%.0f", v);
+            break;
           case LPP_POWER:
             r.readPower(v);
             strcpy(name, "power"); sprintf(buf, "%6.2f", v);
+            break;
+          case LPP_ENERGY:
+            r.readEnergy(v);
+            strcpy(name, "energy"); sprintf(buf, "%.3f", v);
+            break;
+          case LPP_SWITCH:
+            r.readSwitch(v);
+            strcpy(name, "switch"); sprintf(buf, "%.0f", v);
+            break;
+          case LPP_CONCENTRATION:
+            r.readConcentration(v);
+            strcpy(name, "conc"); sprintf(buf, "%.0f", v);
             break;
           default:
             r.skipData(type);

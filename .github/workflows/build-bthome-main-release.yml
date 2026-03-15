@@ -1,0 +1,108 @@
+name: Build BTHome S3 Branch Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/bthome-gateway
+
+jobs:
+  build-release:
+    if: github.ref == 'refs/heads/feat/bthome-gateway'
+    runs-on: ubuntu-latest
+    env:
+      BUILD_ENVIRONMENTS: >-
+        Xiao_S3_WIO_sensor
+        RAK_3112_sensor
+        Heltec_v3_sensor
+        Heltec_WSL3_sensor
+        heltec_v4_sensor
+        heltec_tracker_v2_sensor
+
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build Firmware
+        shell: bash
+        run: |
+          rm -rf out
+          mkdir -p out
+          for build_environment in ${BUILD_ENVIRONMENTS}; do
+            pio run -e "${build_environment}"
+            pio run -t mergebin -e "${build_environment}"
+            cp ".pio/build/${build_environment}/firmware.bin" \
+              "out/${build_environment}-bthome-meschore.bin"
+            cp ".pio/build/${build_environment}/firmware-merged.bin" \
+              "out/${build_environment}-bthome-meschore-merged.bin"
+          done
+
+      - name: Write Release Notes
+        shell: bash
+        run: |
+          cat > out/release-notes.md <<'EOF'
+          ## Quickstart
+
+          Flashing can be done with [flasher.meshcore.co.uk](https://flasher.meshcore.co.uk/):
+
+          1. Download the `*-bthome-meschore-merged.bin` asset for your board from this release.
+          2. Open [flasher.meshcore.co.uk](https://flasher.meshcore.co.uk/).
+          3. Connect the device over USB and upload the merged binary.
+          4. Reboot the device if the flasher does not do it automatically.
+
+          Then open the serial console at `115200` baud and configure BTHome:
+
+          ```text
+          bthome on
+          bthome list
+          bthome add <index>
+          bthome status
+          ```
+
+          To remove a target later:
+
+          ```text
+          bthome rm <index>
+          ```
+
+          Supported ESP32-S3 sensor builds in this release:
+
+          - `Xiao_S3_WIO_sensor`
+          - `RAK_3112_sensor`
+          - `Heltec_v3_sensor`
+          - `Heltec_WSL3_sensor`
+          - `heltec_v4_sensor`
+          - `heltec_tracker_v2_sensor`
+          EOF
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bthome-meschore-s3
+          path: out
+
+      - name: Move Release Tag
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "${GITHUB_REF_NAME}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${GITHUB_REF_NAME}" --force
+
+      - name: Create Or Update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: out/release-notes.md
+          draft: false
+          overwrite_files: true
+          files: out/*

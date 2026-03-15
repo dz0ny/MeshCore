@@ -43,7 +43,7 @@ For developers;
   - [Simple Repeater](./examples/simple_repeater) - Extends network coverage by relaying messages.
   - [Simple Room Server](./examples/simple_room_server) - A simple BBS server for shared Posts.
   - [Simple Secure Chat](./examples/simple_secure_chat) - Secure terminal based text communication between devices.
-  - [Simple Sensor](./examples/simple_sensor) - Remote sensor node with telemetry and alerting.
+  - [Simple Sensor](./examples/simple_sensor) - Remote sensor node with telemetry, alerting, and optional BTHome sensor ingest over BLE on ESP32 sensor builds.
 
 The Simple Secure Chat example can be interacted with through the Serial Monitor in Visual Studio Code, or with a Serial USB Terminal on Android.
 

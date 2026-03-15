@@ -1,5 +1,5 @@
 #include "KissModem.h"
-#include <CayenneLPP.h>
+#include <helpers/MeshCayenneLPP.h>
 
 KissModem::KissModem(Stream& serial, mesh::LocalIdentity& identity, mesh::RNG& rng,
                      mesh::Radio& radio, mesh::MainBoard& board, SensorManager& sensors)
@@ -535,7 +535,7 @@ void KissModem::handleGetSensors(const uint8_t* data, uint16_t len) {
   }
 
   uint8_t permissions = data[0];
-  CayenneLPP telemetry(255);
+  MeshCayenneLPP telemetry(255);
   if (_sensors.querySensors(permissions, telemetry)) {
     writeHardwareFrame(HW_RESP(HW_CMD_GET_SENSORS), telemetry.getBuffer(), telemetry.getSize());
   } else {
