@@ -49,6 +49,12 @@ jobs:
         shell: bash
         run: |
           cat > out/release-notes.md <<'EOF'
+          ## What is BTHome
+
+          BTHome is an open Bluetooth Low Energy advertisement format for low-power sensors and controls.
+          It is commonly used by devices such as Shelly BLU switches, buttons, door sensors, environmental sensors,
+          and weather-station style broadcasters. More details: [bthome.io](https://bthome.io/).
+
           ## Quickstart
 
           Flashing can be done with [flasher.meshcore.co.uk](https://flasher.meshcore.co.uk/):
@@ -58,14 +64,21 @@ jobs:
           3. Connect the device over USB and upload the merged binary.
           4. Reboot the device if the flasher does not do it automatically.
 
-          Then open the serial console at `115200` baud and configure BTHome:
+          Then open the serial console at `115200` baud and discover nearby BTHome devices:
 
           ```text
           bthome on
           bthome list
+          bthome 0
+          bthome get 0 0
           bthome add <index>
           bthome status
           ```
+
+          `bthome list` shows discovered devices.
+          `bthome <index>` shows the field types discovered for one device.
+          `bthome get <index> <field>` returns the current value for one discovered field.
+          `bthome add <index>` selects that device for telemetry publishing.
 
           To remove a target later:
 

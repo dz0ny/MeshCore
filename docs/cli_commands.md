@@ -916,11 +916,14 @@ region save
 - `bthome off`
 - `bthome status`
 - `bthome list`
+- `bthome <index>`
+- `bthome get <index> <field>`
 - `bthome add <index>`
 - `bthome rm <index>`
 
 **Parameters:**
 - `index`: Device index from `bthome list`
+- `field`: Field index from `bthome <index>`
 
 **Notes:**
 - Selected BTHome devices are limited by the discovered-device cache and the remaining telemetry channel budget after local sensors.
@@ -928,6 +931,8 @@ region save
 - BLE scanning starts automatically while `bthome` is enabled.
 - The scanner caches nearby BTHome devices in RAM only; selected targets and `enabled` are persisted. Targets are saved as resolved MAC addresses.
 - `bthome list` returns the found device list with indexes, MAC addresses, and any fresh decoded BTHome values that fit in the reply, including binary states and recent button or dimmer events.
+- `bthome <index>` returns the discovered field types for one cached device using stable field indexes.
+- `bthome get <index> <field>` returns the current value for one discovered field on one cached device.
 - `bthome add <index>` adds a device from the current cache to the selected target set. `bthome rm <index>` removes one selected device.
 - When enabled and targets are set, BTHome numeric values, binary states, button events, and dimmer steps are appended to the node telemetry after local sensors in target order using the closest supported CayenneLPP field types. `text` and `raw` objects are ignored.
 

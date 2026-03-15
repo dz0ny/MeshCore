@@ -133,11 +133,12 @@ For `simple_sensor` firmware, the telemetry response body is a CayenneLPP-compat
 
 On ESP32 `simple_sensor` builds with BTHome discovery enabled, telemetry may also include values from selected unencrypted BTHome devices. Numeric values, binary states, button events, and dimmer steps are appended after local sensors in target order using the closest supported CayenneLPP field types, up to the remaining telemetry channel budget. `text` (`0x53`) and `raw` (`0x54`) objects are discarded.
 
-MeshCore may encode wind speed and gust using a local custom LPP type:
+MeshCore may encode wind speed and gust using local custom LPP types:
 
 | Type value | Name        | Size | Encoding |
 |------------|-------------|------|----------|
 | `0x81`     | `LPP_SPEED` | 2    | Unsigned, `0.01 m/s` |
+| `0x89`     | `LPP_GUST`  | 2    | Unsigned, `0.01 m/s` |
 
 ### Get Telemetry
 

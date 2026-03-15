@@ -373,6 +373,10 @@ public:
             r.readSpeed(v);
             strcpy(name, "speed"); sprintf(buf, "%.2f", v);
             break;
+          case LPP_GUST:
+            r.readGust(v);
+            strcpy(name, "gust"); sprintf(buf, "%.2f", v);
+            break;
           case LPP_TEMPERATURE:
             r.readTemperature(v);
             strcpy(name, "temperature"); sprintf(buf, "%.2f", v);

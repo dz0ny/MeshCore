@@ -22,7 +22,7 @@ static bool macEquals(const uint8_t lhs[6], const uint8_t rhs[6]) {
 }
 
 static const BTHomeScanner::DeviceCache* findDeviceByIndex(
-    const BTHomeScanner::DeviceCache (&devices)[8],
+    const BTHomeScanner::DeviceCache (&devices)[BTHomeScanner::MAX_DEVICES],
     uint8_t index);
 
 }  // namespace
@@ -717,6 +717,9 @@ static bool appendBTHomeField(MeshCayenneLPP& telemetry,
     case 0x5D:
       return telemetry.addCurrent(channel, slot->value) != 0;
     case 0x44:
+      if (slot->occurrence == 1) {
+        return telemetry.addGust(channel, slot->value) != 0;
+      }
       return telemetry.addSpeed(channel, slot->value) != 0;
     case 0x62:
       return appendSignedSpeedField(telemetry, channel, slot->value);
@@ -817,6 +820,9 @@ static uint8_t getBTHomeFieldType(const BTHomeScanner::MeasurementSlot* slot) {
     case 0x5D:
       return LPP_CURRENT;
     case 0x44:
+      if (slot->occurrence == 1) {
+        return LPP_GUST;
+      }
       return LPP_SPEED;
     case 0x62:
       return getSignedSpeedFieldType(slot);
@@ -984,7 +990,7 @@ static bool appendFieldSummary(char* dest,
 }
 
 static const BTHomeScanner::DeviceCache* findDeviceByIndex(
-    const BTHomeScanner::DeviceCache (&devices)[8],
+    const BTHomeScanner::DeviceCache (&devices)[BTHomeScanner::MAX_DEVICES],
     uint8_t index) {
   uint8_t current = 0;
   for (const auto& device : devices) {
@@ -1251,6 +1257,79 @@ size_t BTHomeScanner::formatDeviceList(char* dest, size_t len, unsigned long fre
     appendToBuffer(dest, len, used, " +%u", count - index);
   }
   return used;
+}
+
+size_t BTHomeScanner::formatDeviceFields(char* dest, size_t len, uint8_t device_index, unsigned long freshness_ms) const {
+  if (len == 0) {
+    return 0;
+  }
+
+  dest[0] = 0;
+  const DeviceCache* device = findDeviceByIndex(_devices, device_index);
+  if (device == nullptr) {
+    return snprintf(dest, len, "Err - unknown index");
+  }
+
+  char mac[18];
+  formatMac(device->mac, mac, sizeof(mac));
+  size_t used = 0;
+  if (!appendToBuffer(dest, len, used, "%u:%s", device_index, mac)) {
+    return used;
+  }
+  if (device->encrypted) {
+    appendToBuffer(dest, len, used, " enc");
+    return used;
+  }
+
+  MeasurementRef ordered[TELEMETRY_FIELD_COUNT];
+  const uint8_t ordered_count = collectOrderedMeasurements(*device, getMeasurementRetentionMs(freshness_ms), ordered, TELEMETRY_FIELD_COUNT);
+  if (ordered_count == 0) {
+    appendToBuffer(dest, len, used, " no-fields");
+    return used;
+  }
+
+  for (uint8_t i = 0; i < ordered_count; i++) {
+    char label[16];
+    formatSlotLabel(*ordered[i].slot, label, sizeof(label));
+    if (!appendToBuffer(dest, len, used, " %u=%s", i, label)) {
+      break;
+    }
+  }
+  return used;
+}
+
+size_t BTHomeScanner::formatDeviceFieldValue(char* dest,
+                                             size_t len,
+                                             uint8_t device_index,
+                                             uint8_t field_index,
+                                             unsigned long freshness_ms) const {
+  if (len == 0) {
+    return 0;
+  }
+
+  dest[0] = 0;
+  const DeviceCache* device = findDeviceByIndex(_devices, device_index);
+  if (device == nullptr) {
+    return snprintf(dest, len, "Err - unknown index");
+  }
+  if (device->encrypted) {
+    return snprintf(dest, len, "Err - encrypted");
+  }
+
+  MeasurementRef ordered[TELEMETRY_FIELD_COUNT];
+  const uint8_t ordered_count = collectOrderedMeasurements(*device, getMeasurementRetentionMs(freshness_ms), ordered, TELEMETRY_FIELD_COUNT);
+  if (field_index >= ordered_count) {
+    return snprintf(dest, len, "Err - unknown field");
+  }
+
+  char label[16];
+  char value[32];
+  formatSlotLabel(*ordered[field_index].slot, label, sizeof(label));
+  formatSlotValue(*ordered[field_index].slot,
+                  value,
+                  sizeof(value),
+                  ordered[field_index].slot->object_id == 0x40);
+  return snprintf(dest, len, "%u:%u %s=%s", device_index, field_index, label, value);
 }
 
 void BTHomeScanner::printDevices(Print& out, unsigned long freshness_ms) const {

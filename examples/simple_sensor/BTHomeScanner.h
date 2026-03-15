@@ -53,6 +53,8 @@ public:
   uint8_t appendTelemetry(MeshCayenneLPP& telemetry, uint8_t base_channel, unsigned long freshness_ms) const;
   size_t formatStatus(char* dest, size_t len, unsigned long freshness_ms) const;
   size_t formatDeviceList(char* dest, size_t len, unsigned long freshness_ms) const;
+  size_t formatDeviceFields(char* dest, size_t len, uint8_t device_index, unsigned long freshness_ms) const;
+  size_t formatDeviceFieldValue(char* dest, size_t len, uint8_t device_index, uint8_t field_index, unsigned long freshness_ms) const;
   void printDevices(Print& out, unsigned long freshness_ms) const;
   void handleScanResult(const uint8_t mac[6], const char* name, int rssi, const uint8_t* data, size_t len);
 

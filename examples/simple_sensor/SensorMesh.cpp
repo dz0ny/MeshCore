@@ -106,6 +106,7 @@ static uint8_t getDataSize(uint8_t type) {
       case LPP_VOLTAGE:
       case LPP_CURRENT:
       case LPP_SPEED:
+      case LPP_GUST:
       case LPP_DIRECTION:
       case LPP_POWER:
         return 2;
@@ -123,6 +124,7 @@ static uint32_t getMultiplier(uint8_t type) {
       case LPP_ANALOG_INPUT:
       case LPP_ANALOG_OUTPUT:
       case LPP_SPEED:
+      case LPP_GUST:
         return 100;
       case LPP_TEMPERATURE:
       case LPP_BAROMETRIC_PRESSURE:
@@ -497,6 +499,31 @@ bool SensorMesh::handleBTHomeCommand(uint32_t sender_timestamp, char* command, c
     if (sender_timestamp == 0) {
       _bthome.printDevices(Serial, BTHomeScanner::DEFAULT_FRESHNESS_MS);
     }
+  } else if (memcmp(command, "bthome get ", 11) == 0) {
+    char* end = nullptr;
+    long device_index = strtol(&command[11], &end, 10);
+    if (end == &command[11] || *end != ' ') {
+      strcpy(reply, "Err - bad index");
+    } else {
+      long field_index = strtol(end + 1, &end, 10);
+      if (*end != 0 || device_index < 0 || device_index > 255 || field_index < 0 || field_index > 255) {
+        strcpy(reply, "Err - bad index");
+      } else {
+        _bthome.formatDeviceFieldValue(reply,
+                                       160,
+                                       (uint8_t) device_index,
+                                       (uint8_t) field_index,
+                                       BTHomeScanner::DEFAULT_FRESHNESS_MS);
+      }
+    }
+  } else if (memcmp(command, "bthome ", 7) == 0 && isdigit((unsigned char) command[7])) {
+    char* end = nullptr;
+    long device_index = strtol(&command[7], &end, 10);
+    if (*end != 0 || device_index < 0 || device_index > 255) {
+      strcpy(reply, "Err - bad index");
+    } else {
+      _bthome.formatDeviceFields(reply, 160, (uint8_t) device_index, BTHomeScanner::DEFAULT_FRESHNESS_MS);
+    }
   } else if (memcmp(command, "bthome add ", 11) == 0) {
     const char* index_text = &command[11];
     char* end = nullptr;
@@ -529,7 +556,7 @@ bool SensorMesh::handleBTHomeCommand(uint32_t sender_timestamp, char* command, c
       strcpy(reply, "ok");
     }
   } else {
-    strcpy(reply, "bthome on|off|status|list|add <index>|rm <index>");
+    strcpy(reply, "bthome on|off|status|list|<index>|get <index> <field>|add <index>|rm <index>");
   }
   return true;
 }

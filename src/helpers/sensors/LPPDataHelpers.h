@@ -138,6 +138,10 @@ public:
     meters_per_second = getFloat(&_buf[_pos], 2, LPP_SPEED_MULT, false); _pos += 2;
     return _pos <= _len;
   }
+  bool readGust(float& meters_per_second) {
+    meters_per_second = getFloat(&_buf[_pos], 2, LPP_GUST_MULT, false); _pos += 2;
+    return _pos <= _len;
+  }
   bool readTemperature(float& degrees_c) {
     degrees_c = getFloat(&_buf[_pos], 2, 10, true); _pos += 2;
     return _pos <= _len;
@@ -214,6 +218,7 @@ public:
       case LPP_VOLTAGE:
       case LPP_CURRENT:
       case LPP_SPEED:
+      case LPP_GUST:
       case LPP_DIRECTION:
       case LPP_POWER:
         _pos += 2; break;
@@ -252,6 +257,17 @@ public:
       _buf[_len++] = channel;
       _buf[_len++] = LPP_SPEED;
       uint16_t value = meters_per_second * LPP_SPEED_MULT;
+      write(value);
+      return true;
+    }
+    return false;
+  }
+
+  bool writeGust(uint8_t channel, float meters_per_second) {
+    if (_len + 4 <= _max_len) {
+      _buf[_len++] = channel;
+      _buf[_len++] = LPP_GUST;
+      uint16_t value = meters_per_second * LPP_GUST_MULT;
       write(value);
       return true;
     }
