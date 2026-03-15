@@ -534,7 +534,74 @@ static unsigned long getMeasurementRetentionMs(unsigned long freshness_ms) {
 }
 
 static bool isBinaryObjectId(uint8_t object_id) {
-  return object_id >= 0x0F && object_id <= 0x2D;
+  switch (object_id) {
+    case 0x0F:
+    case 0x10:
+    case 0x11:
+    case 0x15:
+    case 0x16:
+    case 0x17:
+    case 0x18:
+    case 0x19:
+    case 0x1A:
+    case 0x1B:
+    case 0x1C:
+    case 0x1D:
+    case 0x1E:
+    case 0x1F:
+    case 0x20:
+    case 0x21:
+    case 0x22:
+    case 0x23:
+    case 0x24:
+    case 0x25:
+    case 0x26:
+    case 0x27:
+    case 0x28:
+    case 0x29:
+    case 0x2A:
+    case 0x2B:
+    case 0x2C:
+    case 0x2D:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static uint8_t getBinaryFieldType(uint8_t object_id) {
+  switch (object_id) {
+    case 0x0F: return LPP_BINARY_BOOL;
+    case 0x10: return LPP_BINARY_POWER_SWITCH;
+    case 0x11: return LPP_BINARY_OPEN;
+    case 0x15: return LPP_BINARY_BATTERY_LOW;
+    case 0x16: return LPP_BINARY_CHARGING;
+    case 0x17: return LPP_BINARY_CARBON_MONOXIDE;
+    case 0x18: return LPP_BINARY_COLD;
+    case 0x19: return LPP_BINARY_CONNECTIVITY;
+    case 0x1A: return LPP_BINARY_DOOR;
+    case 0x1B: return LPP_BINARY_GARAGE_DOOR;
+    case 0x1C: return LPP_BINARY_GAS;
+    case 0x1D: return LPP_BINARY_HEAT;
+    case 0x1E: return LPP_BINARY_LIGHT;
+    case 0x1F: return LPP_BINARY_LOCK;
+    case 0x20: return LPP_BINARY_MOISTURE;
+    case 0x21: return LPP_BINARY_MOTION;
+    case 0x22: return LPP_BINARY_MOVING;
+    case 0x23: return LPP_BINARY_OCCUPANCY;
+    case 0x24: return LPP_BINARY_PLUG;
+    case 0x25: return LPP_BINARY_PRESENCE;
+    case 0x26: return LPP_BINARY_PROBLEM;
+    case 0x27: return LPP_BINARY_RUNNING;
+    case 0x28: return LPP_BINARY_SAFETY;
+    case 0x29: return LPP_BINARY_SMOKE;
+    case 0x2A: return LPP_BINARY_SOUND;
+    case 0x2B: return LPP_BINARY_TAMPER;
+    case 0x2C: return LPP_BINARY_VIBRATION;
+    case 0x2D: return LPP_BINARY_WINDOW;
+    default:
+      return 0;
+  }
 }
 
 static const char* getButtonEventName(uint8_t event_type) {
@@ -562,6 +629,20 @@ static const char* getButtonEventName(uint8_t event_type) {
 
 static float normalizeDistance(const BTHomeScanner::MeasurementSlot& slot) {
   if (slot.object_id == 0x40) {
+    return slot.value / 1000.0f;
+  }
+  return slot.value;
+}
+
+static float normalizeMass(const BTHomeScanner::MeasurementSlot& slot) {
+  if (slot.object_id == 0x07) {
+    return slot.value * 0.45359237f;
+  }
+  return slot.value;
+}
+
+static float normalizeVolume(const BTHomeScanner::MeasurementSlot& slot) {
+  if (slot.object_id == 0x48) {
     return slot.value / 1000.0f;
   }
   return slot.value;
@@ -599,34 +680,6 @@ static uint8_t getCountFieldType(const BTHomeScanner::MeasurementSlot* slot) {
   return LPP_ANALOG_INPUT;
 }
 
-static bool appendSignedPowerField(MeshCayenneLPP& telemetry, uint8_t channel, float value) {
-  if (value >= 0.0f) {
-    return telemetry.addPower(channel, value) != 0;
-  }
-  return appendAnalogInputField(telemetry, channel, value);
-}
-
-static uint8_t getSignedPowerFieldType(const BTHomeScanner::MeasurementSlot* slot) {
-  if (slot != nullptr && slot->value >= 0.0f) {
-    return LPP_POWER;
-  }
-  return LPP_ANALOG_INPUT;
-}
-
-static bool appendSignedSpeedField(MeshCayenneLPP& telemetry, uint8_t channel, float value) {
-  if (value >= 0.0f && value <= 655.35f) {
-    return telemetry.addSpeed(channel, value) != 0;
-  }
-  return appendAnalogInputField(telemetry, channel, value);
-}
-
-static uint8_t getSignedSpeedFieldType(const BTHomeScanner::MeasurementSlot* slot) {
-  if (slot != nullptr && slot->value >= 0.0f && slot->value <= 655.35f) {
-    return LPP_SPEED;
-  }
-  return LPP_ANALOG_INPUT;
-}
-
 static bool appendBTHomeField(MeshCayenneLPP& telemetry,
                                uint8_t channel,
                                const BTHomeScanner::MeasurementSlot* slot) {
@@ -634,13 +687,14 @@ static bool appendBTHomeField(MeshCayenneLPP& telemetry,
     return false;
   }
   if (isBinaryObjectId(slot->object_id)) {
-    return telemetry.addSwitch(channel, slot->value >= 0.5f ? 1 : 0) != 0;
+    const uint8_t field_type = getBinaryFieldType(slot->object_id);
+    return field_type != 0 && telemetry.addCustomU8(channel, field_type, slot->value >= 0.5f ? 1 : 0) != 0;
   }
   if (slot->object_id == kButtonObjectId) {
-    return appendGenericSensorField(telemetry, channel, max(0.0f, slot->value));
+    return telemetry.addCustomU8(channel, LPP_BUTTON_EVENT, max(0, (int) roundf(slot->value))) != 0;
   }
   if (slot->object_id == kDimmerObjectId) {
-    return appendAnalogInputField(telemetry, channel, slot->value);
+    return telemetry.addCustomS8(channel, LPP_DIMMER, (int8_t) roundf(slot->value)) != 0;
   }
 
   switch (slot->object_id) {
@@ -649,11 +703,12 @@ static bool appendBTHomeField(MeshCayenneLPP& telemetry,
     case 0x01:
       return telemetry.addPercentage(channel, constrain((int) roundf(slot->value), 0, 100)) != 0;
     case 0x02:
-    case 0x08:
     case 0x45:
     case 0x57:
     case 0x58:
       return telemetry.addTemperature(channel, slot->value) != 0;
+    case 0x08:
+      return telemetry.addDewPoint(channel, slot->value) != 0;
     case 0x03:
     case 0x2E:
       return telemetry.addRelativeHumidity(channel, slot->value) != 0;
@@ -666,65 +721,79 @@ static bool appendBTHomeField(MeshCayenneLPP& telemetry,
       return telemetry.addLuminosity(channel, max(0, (int) roundf(slot->value))) != 0;
     case 0x06:
     case 0x07:
-    case 0x3F:
-    case 0x42:
-    case 0x46:
-    case 0x49:
-    case 0x51:
-    case 0x52:
-    case 0x63:
-      return appendAnalogInputField(telemetry, channel, slot->value);
+      return telemetry.addCustomScaledU32(channel, LPP_MASS, LPP_MASS_MULT, normalizeMass(*slot)) != 0;
     case 0x09:
     case 0x3D:
     case 0x3E:
-      return appendCountField(telemetry, channel, slot->value);
-    case 0x47:
-    case 0x48:
-    case 0x4B:
-    case 0x4C:
-    case 0x4E:
-    case 0x4F:
-    case 0x5F:
-    case 0x55:
-    case 0x56:
-    case 0x60:
-    case 0x61:
-    case 0x64:
-      return telemetry.addGenericSensor(channel, max(0.0f, slot->value)) != 0;
-    case 0x59:
-    case 0x5A:
-    case 0x5B:
       return appendCountField(telemetry, channel, slot->value);
     case 0x0A:
     case 0x4D:
       return telemetry.addEnergy(channel, slot->value) != 0;
     case 0x0B:
-      return telemetry.addPower(channel, slot->value) != 0;
     case 0x5C:
-      return appendSignedPowerField(telemetry, channel, slot->value);
+      return telemetry.addCustomScaledS32(channel, LPP_SIGNED_POWER, LPP_SIGNED_POWER_MULT, slot->value) != 0;
     case 0x0C:
     case 0x4A:
       return telemetry.addVoltage(channel, slot->value) != 0;
     case 0x0D:
+      return telemetry.addCustomScaledU16(channel, LPP_PM25, LPP_PM25_MULT, slot->value) != 0;
     case 0x0E:
+      return telemetry.addCustomScaledU16(channel, LPP_PM10, LPP_PM10_MULT, slot->value) != 0;
     case 0x12:
+      return telemetry.addCustomScaledU16(channel, LPP_CO2, LPP_CO2_MULT, slot->value) != 0;
     case 0x13:
-      return telemetry.addConcentration(channel, max(0, (int) roundf(slot->value))) != 0;
+      return telemetry.addCustomScaledU16(channel, LPP_TVOC, LPP_TVOC_MULT, slot->value) != 0;
+    case 0x3F:
+      return telemetry.addCustomScaledS16(channel, LPP_ROTATION, LPP_ROTATION_MULT, slot->value) != 0;
     case 0x40:
     case 0x41:
       return telemetry.addDistance(channel, normalizeDistance(*slot)) != 0;
+    case 0x42:
+      return telemetry.addCustomScaledU32(channel, LPP_DURATION, LPP_DURATION_MULT, slot->value) != 0;
     case 0x43:
     case 0x5D:
-      return telemetry.addCurrent(channel, slot->value) != 0;
+      return telemetry.addCustomScaledS32(channel, LPP_SIGNED_CURRENT, LPP_SIGNED_CURRENT_MULT, slot->value) != 0;
     case 0x44:
       if (slot->occurrence == 1) {
         return telemetry.addGust(channel, slot->value) != 0;
       }
       return telemetry.addSpeed(channel, slot->value) != 0;
-    case 0x62:
-      return appendSignedSpeedField(telemetry, channel, slot->value);
+    case 0x46:
+      return telemetry.addCustomScaledU8(channel, LPP_UV, LPP_UV_MULT, slot->value) != 0;
+    case 0x47:
+    case 0x48:
+    case 0x4E:
+      return telemetry.addCustomScaledU32(channel, LPP_VOLUME, LPP_VOLUME_MULT, normalizeVolume(*slot)) != 0;
+    case 0x49:
+      return telemetry.addCustomScaledU32(channel, LPP_FLOW_RATE, LPP_FLOW_RATE_MULT, slot->value) != 0;
+    case 0x4B:
+    case 0x4C:
+      return telemetry.addCustomScaledU32(channel, LPP_GAS_VOLUME, LPP_GAS_VOLUME_MULT, slot->value) != 0;
+    case 0x4F:
+      return telemetry.addCustomScaledU32(channel, LPP_WATER, LPP_WATER_MULT, slot->value) != 0;
     case 0x50:
       return telemetry.addUnixTime(channel, max(0, (int32_t) roundf(slot->value))) != 0;
+    case 0x51:
+    case 0x63:
+      return telemetry.addCustomScaledS32(channel, LPP_ACCELERATION, LPP_ACCELERATION_MULT, slot->value) != 0;
+    case 0x52:
+      return telemetry.addCustomScaledS32(channel, LPP_GYRO_RATE, LPP_GYRO_RATE_MULT, slot->value) != 0;
+    case 0x55:
+      return telemetry.addCustomScaledU32(channel, LPP_VOLUME_STORAGE, LPP_VOLUME_STORAGE_MULT, slot->value) != 0;
+    case 0x56:
+      return telemetry.addCustomScaledU16(channel, LPP_CONDUCTIVITY, LPP_CONDUCTIVITY_MULT, slot->value) != 0;
+    case 0x5F:
+      return telemetry.addRain(channel, slot->value) != 0;
+    case 0x61:
+      return telemetry.addCustomScaledU16(channel, LPP_RPM, LPP_RPM_MULT, slot->value) != 0;
+    case 0x62:
+      return telemetry.addCustomScaledS32(channel, LPP_SIGNED_SPEED, LPP_SIGNED_SPEED_MULT, slot->value) != 0;
+    case 0x64:
+      return telemetry.addCustomU8(channel, LPP_LIGHT_LEVEL, max(0, (int) roundf(slot->value))) != 0;
+    case 0x59:
+    case 0x5A:
+    case 0x5B:
+      return appendCountField(telemetry, channel, slot->value);
     case 0x5E:
       return telemetry.addDirection(channel, slot->value) != 0;
     default:
@@ -737,26 +806,28 @@ static uint8_t getBTHomeFieldType(const BTHomeScanner::MeasurementSlot* slot) {
     return 0;
   }
   if (isBinaryObjectId(slot->object_id)) {
-    return LPP_SWITCH;
+    return getBinaryFieldType(slot->object_id);
   }
   if (slot->object_id == kButtonObjectId) {
-    return LPP_GENERIC_SENSOR;
+    return LPP_BUTTON_EVENT;
   }
   if (slot->object_id == kDimmerObjectId) {
-    return LPP_ANALOG_INPUT;
+    return LPP_DIMMER;
   }
 
   switch (slot->object_id) {
     case 0x00:
-      return getCountFieldType(slot);
+      // Keep packet metadata visible in the CLI, but do not publish it.
+      return 0;
     case 0x01:
       return LPP_PERCENTAGE;
     case 0x02:
-    case 0x08:
     case 0x45:
     case 0x57:
     case 0x58:
       return LPP_TEMPERATURE;
+    case 0x08:
+      return LPP_DEWPOINT;
     case 0x03:
     case 0x2E:
       return LPP_RELATIVE_HUMIDITY;
@@ -769,65 +840,81 @@ static uint8_t getBTHomeFieldType(const BTHomeScanner::MeasurementSlot* slot) {
       return LPP_LUMINOSITY;
     case 0x06:
     case 0x07:
+      return LPP_MASS;
     case 0x3F:
+      return LPP_ROTATION;
     case 0x42:
+      return LPP_DURATION;
     case 0x46:
+      return LPP_UV;
     case 0x49:
+      return LPP_FLOW_RATE;
     case 0x51:
-    case 0x52:
     case 0x63:
-      return LPP_ANALOG_INPUT;
+      return LPP_ACCELERATION;
+    case 0x52:
+      return LPP_GYRO_RATE;
     case 0x09:
     case 0x3D:
     case 0x3E:
-      return getCountFieldType(slot);
-    case 0x47:
-    case 0x48:
-    case 0x4B:
-    case 0x4C:
-    case 0x4E:
-    case 0x4F:
-    case 0x5F:
-    case 0x55:
-    case 0x56:
-    case 0x60:
-    case 0x61:
-    case 0x64:
-      return LPP_GENERIC_SENSOR;
-    case 0x59:
-    case 0x5A:
-    case 0x5B:
-      return getCountFieldType(slot);
+      return 0;
     case 0x0A:
     case 0x4D:
       return LPP_ENERGY;
     case 0x0B:
-      return LPP_POWER;
     case 0x5C:
-      return getSignedPowerFieldType(slot);
+      return LPP_SIGNED_POWER;
     case 0x0C:
     case 0x4A:
       return LPP_VOLTAGE;
     case 0x0D:
+      return LPP_PM25;
     case 0x0E:
+      return LPP_PM10;
     case 0x12:
+      return LPP_CO2;
     case 0x13:
-      return LPP_CONCENTRATION;
+      return LPP_TVOC;
     case 0x40:
     case 0x41:
       return LPP_DISTANCE;
     case 0x43:
     case 0x5D:
-      return LPP_CURRENT;
+      return LPP_SIGNED_CURRENT;
+    case 0x47:
+    case 0x48:
+    case 0x4E:
+      return LPP_VOLUME;
+    case 0x4F:
+      return LPP_WATER;
+    case 0x50:
+      return LPP_UNIXTIME;
+    case 0x55:
+      return LPP_VOLUME_STORAGE;
+    case 0x56:
+      return LPP_CONDUCTIVITY;
+    case 0x5F:
+      return LPP_RAIN;
+    case 0x61:
+      return LPP_RPM;
+    case 0x62:
+      return LPP_SIGNED_SPEED;
+    case 0x64:
+      return LPP_LIGHT_LEVEL;
+    case 0x4B:
+    case 0x4C:
+      return LPP_GAS_VOLUME;
+    case 0x60:
+      return 0;
+    case 0x59:
+    case 0x5A:
+    case 0x5B:
+      return 0;
     case 0x44:
       if (slot->occurrence == 1) {
         return LPP_GUST;
       }
       return LPP_SPEED;
-    case 0x62:
-      return getSignedSpeedFieldType(slot);
-    case 0x50:
-      return LPP_UNIXTIME;
     case 0x5E:
       return LPP_DIRECTION;
     default:

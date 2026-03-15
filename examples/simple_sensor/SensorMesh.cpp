@@ -79,6 +79,16 @@ static File openAppend(FILESYSTEM* _fs, const char* fname) {
 }
 
 static uint8_t getDataSize(uint8_t type) {
+    if (isMeshCustom1ByteType(type)) {
+      return 1;
+    }
+    if (isMeshCustom2ByteType(type)) {
+      return 2;
+    }
+    if (isMeshCustom4ByteType(type)) {
+      return 4;
+    }
+
     switch (type) {
       case LPP_GPS:
         return 9;
@@ -115,6 +125,10 @@ static uint8_t getDataSize(uint8_t type) {
 }
 
 static uint32_t getMultiplier(uint8_t type) {
+    if (isMeshBinaryType(type) || type == LPP_BUTTON_EVENT || type == LPP_DIMMER || type == LPP_LIGHT_LEVEL) {
+      return 1;
+    }
+
     switch (type) {
       case LPP_CURRENT:
       case LPP_DISTANCE:
@@ -126,6 +140,33 @@ static uint32_t getMultiplier(uint8_t type) {
       case LPP_SPEED:
       case LPP_GUST:
         return 100;
+      case LPP_UV:
+      case LPP_DEWPOINT:
+      case LPP_RAIN:
+      case LPP_ROTATION:
+        return 10;
+      case LPP_ACCELERATION:
+      case LPP_SIGNED_SPEED:
+        return 1000000;
+      case LPP_GYRO_RATE:
+      case LPP_VOLUME:
+      case LPP_FLOW_RATE:
+      case LPP_VOLUME_STORAGE:
+      case LPP_WATER:
+      case LPP_GAS_VOLUME:
+      case LPP_MASS:
+      case LPP_DURATION:
+      case LPP_SIGNED_CURRENT:
+        return 1000;
+      case LPP_SIGNED_POWER:
+        return 100;
+      case LPP_PM25:
+      case LPP_PM10:
+      case LPP_CO2:
+      case LPP_TVOC:
+      case LPP_RPM:
+      case LPP_CONDUCTIVITY:
+        return 1;
       case LPP_TEMPERATURE:
       case LPP_BAROMETRIC_PRESSURE:
       case LPP_RELATIVE_HUMIDITY:
@@ -135,8 +176,10 @@ static uint32_t getMultiplier(uint8_t type) {
 }
 
 static bool isSigned(uint8_t type) {
-  return type == LPP_ALTITUDE || type == LPP_TEMPERATURE || type == LPP_GYROMETER ||
-      type == LPP_ANALOG_INPUT || type == LPP_ANALOG_OUTPUT || type == LPP_GPS || type == LPP_ACCELEROMETER;
+  return type == LPP_ALTITUDE || type == LPP_TEMPERATURE || type == LPP_DEWPOINT || type == LPP_GYROMETER ||
+      type == LPP_ANALOG_INPUT || type == LPP_ANALOG_OUTPUT || type == LPP_GPS || type == LPP_ACCELEROMETER ||
+      type == LPP_DIMMER || type == LPP_ROTATION || type == LPP_ACCELERATION || type == LPP_GYRO_RATE ||
+      type == LPP_SIGNED_SPEED || type == LPP_SIGNED_POWER || type == LPP_SIGNED_CURRENT;
 }
 
 static float getFloat(const uint8_t * buffer, uint8_t size, uint32_t multiplier, bool is_signed) {

@@ -31,6 +31,66 @@
 
 #include "icons.h"
 
+static const char* getBinarySensorLabel(uint8_t type) {
+  switch (type) {
+    case LPP_BINARY_BOOL: return "bool";
+    case LPP_BINARY_POWER_SWITCH: return "pwrsw";
+    case LPP_BINARY_OPEN: return "open";
+    case LPP_BINARY_BATTERY_LOW: return "batlow";
+    case LPP_BINARY_CHARGING: return "charge";
+    case LPP_BINARY_CARBON_MONOXIDE: return "co";
+    case LPP_BINARY_COLD: return "cold";
+    case LPP_BINARY_CONNECTIVITY: return "conn";
+    case LPP_BINARY_DOOR: return "door";
+    case LPP_BINARY_GARAGE_DOOR: return "garage";
+    case LPP_BINARY_GAS: return "gas";
+    case LPP_BINARY_HEAT: return "heat";
+    case LPP_BINARY_LIGHT: return "light";
+    case LPP_BINARY_LOCK: return "lock";
+    case LPP_BINARY_MOISTURE: return "moist";
+    case LPP_BINARY_MOTION: return "motion";
+    case LPP_BINARY_MOVING: return "moving";
+    case LPP_BINARY_OCCUPANCY: return "occup";
+    case LPP_BINARY_PLUG: return "plug";
+    case LPP_BINARY_PRESENCE: return "presence";
+    case LPP_BINARY_PROBLEM: return "problem";
+    case LPP_BINARY_RUNNING: return "running";
+    case LPP_BINARY_SAFETY: return "safety";
+    case LPP_BINARY_SMOKE: return "smoke";
+    case LPP_BINARY_SOUND: return "sound";
+    case LPP_BINARY_TAMPER: return "tamper";
+    case LPP_BINARY_VIBRATION: return "vibrate";
+    case LPP_BINARY_WINDOW: return "window";
+    default:
+      return "switch";
+  }
+}
+
+static const char* getButtonEventLabel(uint8_t event_type) {
+  switch (event_type) {
+    case 0x00: return "none";
+    case 0x01: return "press";
+    case 0x02: return "double";
+    case 0x03: return "triple";
+    case 0x04: return "long";
+    case 0x05: return "longdbl";
+    case 0x06: return "longtri";
+    case 0x80: return "hold";
+    default:
+      return nullptr;
+  }
+}
+
+static const char* getLightLevelLabel(uint8_t level) {
+  switch (level) {
+    case 0: return "dark";
+    case 1: return "twilight";
+    case 2: return "bright";
+    default:
+      return nullptr;
+  }
+}
+
 class SplashScreen : public UIScreen {
   UITask* _task;
   unsigned long dismiss_after;
@@ -343,95 +403,211 @@ public:
 
         display.setCursor(0, y);
         float v;
-        switch (type) {
-          case LPP_GPS: // GPS
-            float lat, lon, alt;
-            r.readGPS(lat, lon, alt);
-            strcpy(name, "gps"); sprintf(buf, "%.4f %.4f", lat, lon);
-            break;
-          case LPP_VOLTAGE:
-            r.readVoltage(v);
-            strcpy(name, "voltage"); sprintf(buf, "%6.2f", v);
-            break;
-          case LPP_ANALOG_INPUT:
-            r.readAnalogInput(v);
-            strcpy(name, "analog"); sprintf(buf, "%.2f", v);
-            break;
-          case LPP_GENERIC_SENSOR:
-            r.readGenericSensor(v);
-            strcpy(name, "generic"); sprintf(buf, "%.0f", v);
-            break;
-          case LPP_CURRENT:
-            r.readCurrent(v);
-            strcpy(name, "current"); sprintf(buf, "%.3f", v);
-            break;
-          case LPP_FREQUENCY:
-            r.readFrequency(v);
-            strcpy(name, "freq"); sprintf(buf, "%.0f", v);
-            break;
-          case LPP_SPEED:
-            r.readSpeed(v);
-            strcpy(name, "speed"); sprintf(buf, "%.2f", v);
-            break;
-          case LPP_GUST:
-            r.readGust(v);
-            strcpy(name, "gust"); sprintf(buf, "%.2f", v);
-            break;
-          case LPP_TEMPERATURE:
-            r.readTemperature(v);
-            strcpy(name, "temperature"); sprintf(buf, "%.2f", v);
-            break;
-          case LPP_RELATIVE_HUMIDITY:
-            r.readRelativeHumidity(v);
-            strcpy(name, "humidity"); sprintf(buf, "%.2f", v);
-            break;
-          case LPP_BAROMETRIC_PRESSURE:
-            r.readPressure(v);
-            strcpy(name, "pressure"); sprintf(buf, "%.2f", v);
-            break;
-          case LPP_LUMINOSITY:
-            r.readLuminosity(v);
-            strcpy(name, "light"); sprintf(buf, "%.0f", v);
-            break;
-          case LPP_PERCENTAGE:
-            r.readPercentage(v);
-            strcpy(name, "percent"); sprintf(buf, "%.0f", v);
-            break;
-          case LPP_ALTITUDE:
-            r.readAltitude(v);
-            strcpy(name, "altitude"); sprintf(buf, "%.0f", v);
-            break;
-          case LPP_DISTANCE:
-            r.readDistance(v);
-            strcpy(name, "distance"); sprintf(buf, "%.2f", v);
-            break;
-          case LPP_DIRECTION:
-            r.readDirection(v);
-            strcpy(name, "direction"); sprintf(buf, "%.0f", v);
-            break;
-          case LPP_UNIXTIME:
-            r.readUnixTime(v);
-            strcpy(name, "time"); sprintf(buf, "%.0f", v);
-            break;
-          case LPP_POWER:
-            r.readPower(v);
-            strcpy(name, "power"); sprintf(buf, "%6.2f", v);
-            break;
-          case LPP_ENERGY:
-            r.readEnergy(v);
-            strcpy(name, "energy"); sprintf(buf, "%.3f", v);
-            break;
-          case LPP_SWITCH:
-            r.readSwitch(v);
-            strcpy(name, "switch"); sprintf(buf, "%.0f", v);
-            break;
-          case LPP_CONCENTRATION:
-            r.readConcentration(v);
-            strcpy(name, "conc"); sprintf(buf, "%.0f", v);
-            break;
-          default:
-            r.skipData(type);
-            strcpy(name, "unk"); sprintf(buf, "");
+        if (isMeshBinaryType(type)) {
+          r.readCustomU8(v);
+          strcpy(name, getBinarySensorLabel(type));
+          strcpy(buf, v >= 0.5f ? "on" : "off");
+        } else {
+          switch (type) {
+            case LPP_GPS: // GPS
+              float lat, lon, alt;
+              r.readGPS(lat, lon, alt);
+              strcpy(name, "gps"); sprintf(buf, "%.4f %.4f", lat, lon);
+              break;
+            case LPP_VOLTAGE:
+              r.readVoltage(v);
+              strcpy(name, "voltage"); sprintf(buf, "%6.2f", v);
+              break;
+            case LPP_ANALOG_INPUT:
+              r.readAnalogInput(v);
+              strcpy(name, "analog"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_GENERIC_SENSOR:
+              r.readGenericSensor(v);
+              strcpy(name, "generic"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_CURRENT:
+              r.readCurrent(v);
+              strcpy(name, "current"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_SIGNED_CURRENT:
+              r.readCustomS32(v, LPP_SIGNED_CURRENT_MULT);
+              strcpy(name, "current"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_FREQUENCY:
+              r.readFrequency(v);
+              strcpy(name, "freq"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_SPEED:
+              r.readSpeed(v);
+              strcpy(name, "speed"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_SIGNED_SPEED:
+              r.readCustomS32(v, LPP_SIGNED_SPEED_MULT);
+              strcpy(name, "speed"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_GUST:
+              r.readGust(v);
+              strcpy(name, "gust"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_DEWPOINT:
+              r.readDewPoint(v);
+              strcpy(name, "dew"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_RAIN:
+              r.readRain(v);
+              strcpy(name, "rain"); sprintf(buf, "%.1f", v);
+              break;
+            case LPP_UV:
+              r.readCustomU8(v, LPP_UV_MULT);
+              strcpy(name, "uv"); sprintf(buf, "%.1f", v);
+              break;
+            case LPP_LIGHT_LEVEL:
+              r.readCustomU8(v);
+              strcpy(name, "lightlvl");
+              if (getLightLevelLabel((uint8_t) roundf(v)) != nullptr) {
+                strcpy(buf, getLightLevelLabel((uint8_t) roundf(v)));
+              } else {
+                sprintf(buf, "%.0f", v);
+              }
+              break;
+            case LPP_BUTTON_EVENT:
+              r.readCustomU8(v);
+              strcpy(name, "button");
+              if (getButtonEventLabel((uint8_t) roundf(v)) != nullptr) {
+                strcpy(buf, getButtonEventLabel((uint8_t) roundf(v)));
+              } else {
+                sprintf(buf, "%.0f", v);
+              }
+              break;
+            case LPP_DIMMER:
+              r.readCustomS8(v);
+              strcpy(name, "dimmer"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_TEMPERATURE:
+              r.readTemperature(v);
+              strcpy(name, "temperature"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_RELATIVE_HUMIDITY:
+              r.readRelativeHumidity(v);
+              strcpy(name, "humidity"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_BAROMETRIC_PRESSURE:
+              r.readPressure(v);
+              strcpy(name, "pressure"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_LUMINOSITY:
+              r.readLuminosity(v);
+              strcpy(name, "light"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_PERCENTAGE:
+              r.readPercentage(v);
+              strcpy(name, "percent"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_ALTITUDE:
+              r.readAltitude(v);
+              strcpy(name, "altitude"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_DISTANCE:
+              r.readDistance(v);
+              strcpy(name, "distance"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_DIRECTION:
+              r.readDirection(v);
+              strcpy(name, "direction"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_UNIXTIME:
+              r.readUnixTime(v);
+              strcpy(name, "time"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_POWER:
+              r.readPower(v);
+              strcpy(name, "power"); sprintf(buf, "%6.2f", v);
+              break;
+            case LPP_SIGNED_POWER:
+              r.readCustomS32(v, LPP_SIGNED_POWER_MULT);
+              strcpy(name, "power"); sprintf(buf, "%.2f", v);
+              break;
+            case LPP_ENERGY:
+              r.readEnergy(v);
+              strcpy(name, "energy"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_SWITCH:
+              r.readSwitch(v);
+              strcpy(name, "switch"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_CONCENTRATION:
+              r.readConcentration(v);
+              strcpy(name, "conc"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_PM25:
+              r.readCustomU16(v);
+              strcpy(name, "pm25"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_PM10:
+              r.readCustomU16(v);
+              strcpy(name, "pm10"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_CO2:
+              r.readCustomU16(v);
+              strcpy(name, "co2"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_TVOC:
+              r.readCustomU16(v);
+              strcpy(name, "tvoc"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_RPM:
+              r.readCustomU16(v);
+              strcpy(name, "rpm"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_CONDUCTIVITY:
+              r.readCustomU16(v);
+              strcpy(name, "cond"); sprintf(buf, "%.0f", v);
+              break;
+            case LPP_ROTATION:
+              r.readCustomS16(v, LPP_ROTATION_MULT);
+              strcpy(name, "rotation"); sprintf(buf, "%.1f", v);
+              break;
+            case LPP_DURATION:
+              r.readCustomU32(v, LPP_DURATION_MULT);
+              strcpy(name, "duration"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_ACCELERATION:
+              r.readCustomS32(v, LPP_ACCELERATION_MULT);
+              strcpy(name, "accel"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_GYRO_RATE:
+              r.readCustomS32(v, LPP_GYRO_RATE_MULT);
+              strcpy(name, "gyro"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_VOLUME:
+              r.readCustomU32(v, LPP_VOLUME_MULT);
+              strcpy(name, "volume"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_FLOW_RATE:
+              r.readCustomU32(v, LPP_FLOW_RATE_MULT);
+              strcpy(name, "flow"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_VOLUME_STORAGE:
+              r.readCustomU32(v, LPP_VOLUME_STORAGE_MULT);
+              strcpy(name, "storage"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_WATER:
+              r.readCustomU32(v, LPP_WATER_MULT);
+              strcpy(name, "water"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_GAS_VOLUME:
+              r.readCustomU32(v, LPP_GAS_VOLUME_MULT);
+              strcpy(name, "gas"); sprintf(buf, "%.3f", v);
+              break;
+            case LPP_MASS:
+              r.readCustomU32(v, LPP_MASS_MULT);
+              strcpy(name, "mass"); sprintf(buf, "%.3f", v);
+              break;
+            default:
+              r.skipData(type);
+              strcpy(name, "unk"); sprintf(buf, "");
+          }
         }
         display.setCursor(0, y);
         display.print(name);

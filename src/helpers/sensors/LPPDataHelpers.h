@@ -142,6 +142,14 @@ public:
     meters_per_second = getFloat(&_buf[_pos], 2, LPP_GUST_MULT, false); _pos += 2;
     return _pos <= _len;
   }
+  bool readDewPoint(float& degrees_c) {
+    degrees_c = getFloat(&_buf[_pos], 2, LPP_DEWPOINT_MULT, true); _pos += 2;
+    return _pos <= _len;
+  }
+  bool readRain(float& millimeters) {
+    millimeters = getFloat(&_buf[_pos], 2, LPP_RAIN_MULT, false); _pos += 2;
+    return _pos <= _len;
+  }
   bool readTemperature(float& degrees_c) {
     degrees_c = getFloat(&_buf[_pos], 2, 10, true); _pos += 2;
     return _pos <= _len;
@@ -190,8 +198,45 @@ public:
     value = getFloat(&_buf[_pos], 2, 1, false); _pos += 2;
     return _pos <= _len;
   }
+  bool readCustomU8(float& value, uint32_t multiplier = 1) {
+    value = getFloat(&_buf[_pos], 1, multiplier, false); _pos += 1;
+    return _pos <= _len;
+  }
+  bool readCustomS8(float& value, uint32_t multiplier = 1) {
+    value = getFloat(&_buf[_pos], 1, multiplier, true); _pos += 1;
+    return _pos <= _len;
+  }
+  bool readCustomU16(float& value, uint32_t multiplier = 1) {
+    value = getFloat(&_buf[_pos], 2, multiplier, false); _pos += 2;
+    return _pos <= _len;
+  }
+  bool readCustomS16(float& value, uint32_t multiplier = 1) {
+    value = getFloat(&_buf[_pos], 2, multiplier, true); _pos += 2;
+    return _pos <= _len;
+  }
+  bool readCustomU32(float& value, uint32_t multiplier = 1) {
+    value = getFloat(&_buf[_pos], 4, multiplier, false); _pos += 4;
+    return _pos <= _len;
+  }
+  bool readCustomS32(float& value, uint32_t multiplier = 1) {
+    value = getFloat(&_buf[_pos], 4, multiplier, true); _pos += 4;
+    return _pos <= _len;
+  }
 
   void skipData(uint8_t type) {
+    if (isMeshCustom1ByteType(type)) {
+      _pos += 1;
+      return;
+    }
+    if (isMeshCustom2ByteType(type)) {
+      _pos += 2;
+      return;
+    }
+    if (isMeshCustom4ByteType(type)) {
+      _pos += 4;
+      return;
+    }
+
     switch (type) {
       case LPP_GPS:
         _pos += 9; break;
@@ -268,6 +313,28 @@ public:
       _buf[_len++] = channel;
       _buf[_len++] = LPP_GUST;
       uint16_t value = meters_per_second * LPP_GUST_MULT;
+      write(value);
+      return true;
+    }
+    return false;
+  }
+
+  bool writeDewPoint(uint8_t channel, float degrees_c) {
+    if (_len + 4 <= _max_len) {
+      _buf[_len++] = channel;
+      _buf[_len++] = LPP_DEWPOINT;
+      int16_t value = degrees_c * LPP_DEWPOINT_MULT;
+      write((uint16_t) value);
+      return true;
+    }
+    return false;
+  }
+
+  bool writeRain(uint8_t channel, float millimeters) {
+    if (_len + 4 <= _max_len) {
+      _buf[_len++] = channel;
+      _buf[_len++] = LPP_RAIN;
+      uint16_t value = millimeters * LPP_RAIN_MULT;
       write(value);
       return true;
     }
