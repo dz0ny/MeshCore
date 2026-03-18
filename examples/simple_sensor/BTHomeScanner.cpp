@@ -730,6 +730,7 @@ static bool appendBTHomeField(MeshCayenneLPP& telemetry,
     case 0x4D:
       return telemetry.addEnergy(channel, slot->value) != 0;
     case 0x0B:
+      return telemetry.addPower(channel, slot->value) != 0;  // standard LPP type 128, 2B unsigned
     case 0x5C:
       return telemetry.addCustomScaledS32(channel, LPP_SIGNED_POWER, LPP_SIGNED_POWER_MULT, slot->value) != 0;
     case 0x0C:
@@ -751,6 +752,7 @@ static bool appendBTHomeField(MeshCayenneLPP& telemetry,
     case 0x42:
       return telemetry.addCustomScaledU32(channel, LPP_DURATION, LPP_DURATION_MULT, slot->value) != 0;
     case 0x43:
+      return telemetry.addCurrent(channel, slot->value) != 0;  // standard LPP type 117, 2B unsigned
     case 0x5D:
       return telemetry.addCustomScaledS32(channel, LPP_SIGNED_CURRENT, LPP_SIGNED_CURRENT_MULT, slot->value) != 0;
     case 0x44:
