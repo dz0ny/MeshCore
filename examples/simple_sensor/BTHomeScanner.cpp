@@ -131,7 +131,7 @@ static const BTHomeObjectDef kObjectDefs[] = {
   {0x5C, 4, true, 0.01f, "power"},
   {0x5D, 2, true, 0.001f, "curr"},
   {0x5E, 2, false, 0.01f, "dir"},
-  {0x5F, 2, false, 0.1f, "rain"},
+  {0x5F, 2, false, 0.01f, "rain"},
   {0x60, 1, false, 1.0f, "chan"},
   {0x61, 2, false, 1.0f, "rpm"},
   {0x62, 4, true, 0.000001f, "speeds"},
