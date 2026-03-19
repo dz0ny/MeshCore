@@ -287,20 +287,55 @@ static void formatBTHomeMetPublishMask(uint8_t mask, char* dest, size_t len) {
   dest[len - 1] = 0;
 }
 
+static bool isBTHomeMetMacLabel(const char* src) {
+  if (src == nullptr) {
+    return false;
+  }
+
+  for (int i = 0; i < 17; i++) {
+    char c = src[i];
+    if (c == 0) {
+      return false;
+    }
+    if ((i % 3) == 2) {
+      if (c != ':') {
+        return false;
+      }
+    } else if (!isxdigit((unsigned char) c)) {
+      return false;
+    }
+  }
+  return src[17] == 0;
+}
+
 static void formatBTHomeMetLabel(const char* src, char* dest, size_t len) {
   if (len == 0) {
     return;
   }
+  dest[0] = 0;
+  if (src == nullptr || isBTHomeMetMacLabel(src)) {
+    return;
+  }
   size_t used = 0;
+  bool prev_space = false;
   while (src != nullptr && *src != 0 && used + 1 < len) {
     char c = *src++;
     if (c == '\n' || c == '\r') {
       break;
     }
-    if (c == ' ') {
-      c = '_';
+    if (isspace((unsigned char) c)) {
+      if (prev_space || used == 0) {
+        continue;
+      }
+      c = ' ';
+      prev_space = true;
+    } else {
+      prev_space = false;
     }
     dest[used++] = c;
+  }
+  while (used > 0 && dest[used - 1] == ' ') {
+    used--;
   }
   dest[used] = 0;
 }
@@ -450,6 +485,7 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
   if (len == 0 || !_met_report.hasTarget()) {
     return false;
   }
+  (void) slot_name;
 
   char label[24];
   float temperature = 0.0f;
@@ -485,37 +521,47 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
     return false;
   }
 
-  char rain_suffix[20];
-  rain_suffix[0] = 0;
+  char rain_sentence[16];
+  rain_sentence[0] = 0;
   if (seconds_of_day > 0) {
     float rain_first = 0.0f;
     float rain_last = 0.0f;
     if (_met_report.rain_history.calcFirstLast(getRTCClock(), seconds_of_day, 0, rain_first, rain_last) &&
         rain_last + 0.01f >= rain_first) {
-      snprintf(rain_suffix, sizeof(rain_suffix), " R+%.1fmm", max(0.0f, rain_last - rain_first));
+      snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA7 %.1f mm.", max(0.0f, rain_last - rain_first));
     }
   }
 
-  char short_label[16];
-  formatBTHomeMetLabel(label, short_label, sizeof(short_label));
-  const char* report_slot = slot_name != nullptr ? slot_name : getBTHomeMetSlotName(getBTHomeMetSlotForTime(seconds_of_day));
+  char friendly_label[16];
+  formatBTHomeMetLabel(label, friendly_label, sizeof(friendly_label));
 
-  int written = snprintf(dest,
-                         len,
-                         "wx %s %s T%.1f(%.1f/%.1f) RH%.0f(%.0f/%.0f) W%.1f a%.1f G%.1f m%.1f%s",
-                         report_slot,
-                         short_label,
-                         temperature,
-                         temperature_stats._min,
-                         temperature_stats._max,
-                         humidity,
-                         humidity_stats._min,
-                         humidity_stats._max,
-                         wind_speed,
-                         wind_stats._avg,
-                         gust,
-                         gust_stats._max,
-                         rain_suffix);
+  int written = 0;
+  if (friendly_label[0] != 0) {
+    written = snprintf(dest,
+                       len,
+                       "\xF0\x9F\x8C\xA4 %s: %.1fC, RH %.0f%%. Wind %.1f/%.1f/%.1f m/s. Range %.1f..%.1fC.%s",
+                       friendly_label,
+                       temperature,
+                       humidity,
+                       wind_speed,
+                       wind_stats._avg,
+                       gust_stats._max,
+                       temperature_stats._min,
+                       temperature_stats._max,
+                       rain_sentence);
+  } else {
+    written = snprintf(dest,
+                       len,
+                       "\xF0\x9F\x8C\xA4 %.1fC, RH %.0f%%. Wind %.1f/%.1f/%.1f m/s. Range %.1f..%.1fC.%s",
+                       temperature,
+                       humidity,
+                       wind_speed,
+                       wind_stats._avg,
+                       gust_stats._max,
+                       temperature_stats._min,
+                       temperature_stats._max,
+                       rain_sentence);
+  }
   return written > 0 && (size_t) written < len;
 }
 
