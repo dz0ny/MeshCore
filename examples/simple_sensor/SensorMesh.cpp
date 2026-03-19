@@ -287,59 +287,6 @@ static void formatBTHomeMetPublishMask(uint8_t mask, char* dest, size_t len) {
   dest[len - 1] = 0;
 }
 
-static bool isBTHomeMetMacLabel(const char* src) {
-  if (src == nullptr) {
-    return false;
-  }
-
-  for (int i = 0; i < 17; i++) {
-    char c = src[i];
-    if (c == 0) {
-      return false;
-    }
-    if ((i % 3) == 2) {
-      if (c != ':') {
-        return false;
-      }
-    } else if (!isxdigit((unsigned char) c)) {
-      return false;
-    }
-  }
-  return src[17] == 0;
-}
-
-static void formatBTHomeMetLabel(const char* src, char* dest, size_t len) {
-  if (len == 0) {
-    return;
-  }
-  dest[0] = 0;
-  if (src == nullptr || isBTHomeMetMacLabel(src)) {
-    return;
-  }
-  size_t used = 0;
-  bool prev_space = false;
-  while (src != nullptr && *src != 0 && used + 1 < len) {
-    char c = *src++;
-    if (c == '\n' || c == '\r') {
-      break;
-    }
-    if (isspace((unsigned char) c)) {
-      if (prev_space || used == 0) {
-        continue;
-      }
-      c = ' ';
-      prev_space = true;
-    } else {
-      prev_space = false;
-    }
-    dest[used++] = c;
-  }
-  while (used > 0 && dest[used - 1] == ' ') {
-    used--;
-  }
-  dest[used] = 0;
-}
-
 static int decodeBase64Secret(const char* src, uint8_t* dest, size_t dest_len) {
   uint32_t buffer = 0;
   int bits = 0;
@@ -487,15 +434,14 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
   }
   (void) slot_name;
 
-  char label[24];
   float temperature = 0.0f;
   float humidity = 0.0f;
   float wind_speed = 0.0f;
   float gust = 0.0f;
   if (!_bthome.getMetReportObservationByMac(
           _met_report.target_mac,
-          label,
-          sizeof(label),
+          nullptr,
+          0,
           temperature,
           humidity,
           wind_speed,
@@ -528,40 +474,22 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
     float rain_last = 0.0f;
     if (_met_report.rain_history.calcFirstLast(getRTCClock(), seconds_of_day, 0, rain_first, rain_last) &&
         rain_last + 0.01f >= rain_first) {
-      snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA7 %.1f mm.", max(0.0f, rain_last - rain_first));
+      snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA7%.1fmm", max(0.0f, rain_last - rain_first));
     }
   }
 
-  char friendly_label[16];
-  formatBTHomeMetLabel(label, friendly_label, sizeof(friendly_label));
-
-  int written = 0;
-  if (friendly_label[0] != 0) {
-    written = snprintf(dest,
-                       len,
-                       "\xF0\x9F\x8C\xA4 %s: %.1fC, RH %.0f%%. Wind %.1f/%.1f/%.1f m/s. Range %.1f..%.1fC.%s",
-                       friendly_label,
-                       temperature,
-                       humidity,
-                       wind_speed,
-                       wind_stats._avg,
-                       gust_stats._max,
-                       temperature_stats._min,
-                       temperature_stats._max,
-                       rain_sentence);
-  } else {
-    written = snprintf(dest,
-                       len,
-                       "\xF0\x9F\x8C\xA4 %.1fC, RH %.0f%%. Wind %.1f/%.1f/%.1f m/s. Range %.1f..%.1fC.%s",
-                       temperature,
-                       humidity,
-                       wind_speed,
-                       wind_stats._avg,
-                       gust_stats._max,
-                       temperature_stats._min,
-                       temperature_stats._max,
-                       rain_sentence);
-  }
+  int written = snprintf(dest,
+                         len,
+                         "\xF0\x9F\x8C\xA1%.1fC \xF0\x9F\x92\xA7%.0f%% \xF0\x9F\x92\xA8%.1f/%.1f/%.1fm/s "
+                         "\xF0\x9F\x93\x89%.1fC \xF0\x9F\x93\x88%.1fC%s",
+                         temperature,
+                         humidity,
+                         wind_speed,
+                         wind_stats._avg,
+                         gust_stats._max,
+                         temperature_stats._min,
+                         temperature_stats._max,
+                         rain_sentence);
   return written > 0 && (size_t) written < len;
 }
 
