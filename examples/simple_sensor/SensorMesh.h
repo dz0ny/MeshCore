@@ -138,6 +138,83 @@ private:
     uint8_t target_count;
     uint8_t reserved;
     uint8_t target_macs[BTHomeScanner::MAX_TARGETS][6];
+    uint8_t met_target_configured;
+    uint8_t met_publish_mask;
+    uint8_t met_channel_secret_len;
+    uint8_t met_reserved;
+    uint8_t met_target_mac[6];
+    uint8_t met_channel_secret[PUB_KEY_SIZE];
+  };
+
+  enum BTHomeMetPublishSlot : uint8_t {
+    BTHOME_MET_PUBLISH_MORNING = 1 << 0,
+    BTHOME_MET_PUBLISH_MIDDAY = 1 << 1,
+    BTHOME_MET_PUBLISH_EVENING = 1 << 2,
+  };
+
+  struct BTHomeMetReportState {
+    static const uint16_t HISTORY_SLOTS = 12 * 24;
+    static const uint32_t HISTORY_INTERVAL_SECS = 5 * 60;
+
+    uint8_t target_configured;
+    uint8_t publish_mask;
+    uint8_t channel_secret_len;
+    uint8_t reserved;
+    uint8_t target_mac[6];
+    mesh::GroupChannel channel;
+    uint32_t last_publish_day;
+    uint8_t last_publish_mask;
+    float temperature_samples[HISTORY_SLOTS];
+    float humidity_samples[HISTORY_SLOTS];
+    float wind_speed_samples[HISTORY_SLOTS];
+    float gust_samples[HISTORY_SLOTS];
+    float rain_samples[HISTORY_SLOTS];
+    TimeSeriesData temperature_history;
+    TimeSeriesData humidity_history;
+    TimeSeriesData wind_speed_history;
+    TimeSeriesData gust_history;
+    TimeSeriesData rain_history;
+
+    BTHomeMetReportState()
+        : target_configured(0),
+          publish_mask(0),
+          channel_secret_len(0),
+          reserved(0),
+          last_publish_day(0),
+          last_publish_mask(0),
+          temperature_history(temperature_samples, HISTORY_SLOTS, HISTORY_INTERVAL_SECS),
+          humidity_history(humidity_samples, HISTORY_SLOTS, HISTORY_INTERVAL_SECS),
+          wind_speed_history(wind_speed_samples, HISTORY_SLOTS, HISTORY_INTERVAL_SECS),
+          gust_history(gust_samples, HISTORY_SLOTS, HISTORY_INTERVAL_SECS),
+          rain_history(rain_samples, HISTORY_SLOTS, HISTORY_INTERVAL_SECS) {
+      memset(target_mac, 0, sizeof(target_mac));
+      memset(&channel, 0, sizeof(channel));
+      clearHistory();
+    }
+
+    void clearHistory() {
+      temperature_history.clear();
+      humidity_history.clear();
+      wind_speed_history.clear();
+      gust_history.clear();
+      rain_history.clear();
+      last_publish_day = 0;
+      last_publish_mask = 0;
+    }
+
+    void clearTarget() {
+      target_configured = 0;
+      memset(target_mac, 0, sizeof(target_mac));
+      clearHistory();
+    }
+
+    void clearChannel() {
+      channel_secret_len = 0;
+      memset(&channel, 0, sizeof(channel));
+    }
+
+    bool hasTarget() const { return target_configured != 0; }
+    bool hasChannel() const { return channel_secret_len == 16 || channel_secret_len == 32; }
   };
 
   FILESYSTEM* _fs;
@@ -146,6 +223,7 @@ private:
   ClientACL  acl;
   CommonCLI _cli;
   BTHomeScanner _bthome;
+  BTHomeMetReportState _met_report;
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   unsigned long dirty_contacts_expiry;
   MeshCayenneLPP telemetry;
@@ -165,8 +243,16 @@ private:
   void buildTelemetry(uint8_t requester_permissions);
   uint8_t getNextTelemetryChannel();
   bool handleBTHomeCommand(uint32_t sender_timestamp, char* command, char* reply);
+  bool handleBTHomeMetCommand(char* command, char* reply);
   void loadBTHomeConfig();
   void saveBTHomeConfig();
+  bool configureBTHomeMetTarget(uint8_t device_index);
+  bool configureBTHomeMetChannel(const char* psk_base64);
+  void recordBTHomeMetHistory();
+  void maybePublishBTHomeMetReport();
+  bool publishBTHomeMetReport(const char* slot_name);
+  bool buildBTHomeMetReport(char* dest, size_t len, const char* slot_name) const;
+  size_t formatBTHomeMetStatus(char* dest, size_t len) const;
 
   void sendAlert(const ClientInfo* c, Trigger* t);
 

@@ -56,6 +56,26 @@ public:
   size_t formatDeviceFields(char* dest, size_t len, uint8_t device_index, unsigned long freshness_ms) const;
   size_t formatDeviceFieldValue(char* dest, size_t len, uint8_t device_index, uint8_t field_index, unsigned long freshness_ms) const;
   void printDevices(Print& out, unsigned long freshness_ms) const;
+  bool isMetReportCapable(uint8_t device_index, unsigned long freshness_ms) const;
+  bool getMetReportObservationByIndex(uint8_t device_index,
+                                      uint8_t mac[6],
+                                      char* label,
+                                      size_t label_len,
+                                      float& temperature,
+                                      float& humidity,
+                                      float& wind_speed,
+                                      float& gust,
+                                      unsigned long freshness_ms) const;
+  bool getMetReportObservationByMac(const uint8_t mac[6],
+                                    char* label,
+                                    size_t label_len,
+                                    float& temperature,
+                                    float& humidity,
+                                    float& wind_speed,
+                                    float& gust,
+                                    unsigned long freshness_ms) const;
+  bool getRainMeasurementByMac(const uint8_t mac[6], float& rain, unsigned long freshness_ms) const;
+  bool formatDeviceLabelByMac(const uint8_t mac[6], char* dest, size_t len) const;
   void handleScanResult(const uint8_t mac[6], const char* name, int rssi, const uint8_t* data, size_t len);
 
   static bool parseMac(const char* text, uint8_t mac[6]);

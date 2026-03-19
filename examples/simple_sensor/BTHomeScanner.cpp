@@ -995,6 +995,95 @@ static void formatSlotValue(const BTHomeScanner::MeasurementSlot& slot,
   snprintf(dest, len, "%.2f", value);
 }
 
+static void formatDeviceLabel(const BTHomeScanner::DeviceCache& device, char* dest, size_t len) {
+  if (len == 0) {
+    return;
+  }
+  if (device.name[0] != 0) {
+    strncpy(dest, device.name, len - 1);
+    dest[len - 1] = 0;
+    return;
+  }
+  BTHomeScanner::formatMac(device.mac, dest, len);
+}
+
+static const BTHomeScanner::MeasurementSlot* findFirstFreshMeasurement(
+    const BTHomeScanner::DeviceCache& device,
+    const uint8_t object_ids[],
+    uint8_t object_id_count,
+    unsigned long freshness_ms) {
+  for (uint8_t i = 0; i < object_id_count; i++) {
+    const BTHomeScanner::MeasurementSlot* slot = findMeasurementSlot(device, object_ids[i], 0, freshness_ms);
+    if (slot != nullptr) {
+      return slot;
+    }
+  }
+  return nullptr;
+}
+
+static bool getMetReportObservation(const BTHomeScanner::DeviceCache& device,
+                                    char* label,
+                                    size_t label_len,
+                                    float& temperature,
+                                    float& humidity,
+                                    float& wind_speed,
+                                    float& gust,
+                                    unsigned long freshness_ms) {
+  if (device.encrypted) {
+    return false;
+  }
+
+  const unsigned long retention_ms = getMeasurementRetentionMs(freshness_ms);
+  if (!isFresh(device.last_seen, retention_ms)) {
+    return false;
+  }
+
+  static const uint8_t kTemperatureObjectIds[] = { 0x02, 0x45, 0x57, 0x58 };
+  static const uint8_t kHumidityObjectIds[] = { 0x03, 0x2E };
+
+  const BTHomeScanner::MeasurementSlot* temperature_slot = findFirstFreshMeasurement(
+      device, kTemperatureObjectIds, sizeof(kTemperatureObjectIds), retention_ms);
+  const BTHomeScanner::MeasurementSlot* humidity_slot = findFirstFreshMeasurement(
+      device, kHumidityObjectIds, sizeof(kHumidityObjectIds), retention_ms);
+  const BTHomeScanner::MeasurementSlot* wind_slot = findMeasurementSlot(device, 0x44, 0, retention_ms);
+  const BTHomeScanner::MeasurementSlot* gust_slot = findMeasurementSlot(device, 0x44, 1, retention_ms);
+
+  if (temperature_slot == nullptr || humidity_slot == nullptr || wind_slot == nullptr || gust_slot == nullptr) {
+    return false;
+  }
+
+  if (label != nullptr && label_len > 0) {
+    formatDeviceLabel(device, label, label_len);
+  }
+
+  temperature = temperature_slot->value;
+  humidity = humidity_slot->value;
+  wind_speed = wind_slot->value;
+  gust = gust_slot->value;
+  return true;
+}
+
+static bool getRainMeasurement(const BTHomeScanner::DeviceCache& device,
+                               float& rain,
+                               unsigned long freshness_ms) {
+  if (device.encrypted) {
+    return false;
+  }
+
+  const unsigned long retention_ms = getMeasurementRetentionMs(freshness_ms);
+  if (!isFresh(device.last_seen, retention_ms)) {
+    return false;
+  }
+
+  const BTHomeScanner::MeasurementSlot* rain_slot = findMeasurementSlot(device, 0x5F, 0, retention_ms);
+  if (rain_slot == nullptr) {
+    return false;
+  }
+
+  rain = rain_slot->value;
+  return true;
+}
+
 static uint8_t collectOrderedMeasurements(const BTHomeScanner::DeviceCache& device,
                                          unsigned long freshness_ms,
                                          MeasurementRef refs[],
@@ -1192,6 +1281,28 @@ void BTHomeScanner::handleScanResult(const uint8_t mac[6],
 }
 #endif
 
+#if !defined(ESP32_PLATFORM)
+namespace {
+
+static const BTHomeScanner::DeviceCache* findDeviceByIndex(
+    const BTHomeScanner::DeviceCache (&devices)[BTHomeScanner::MAX_DEVICES],
+    uint8_t index) {
+  uint8_t current = 0;
+  for (const auto& device : devices) {
+    if (!device.used) {
+      continue;
+    }
+    if (current == index) {
+      return &device;
+    }
+    current++;
+  }
+  return nullptr;
+}
+
+}  // namespace
+#endif
+
 uint8_t BTHomeScanner::appendTelemetry(MeshCayenneLPP& telemetry, uint8_t base_channel, unsigned long freshness_ms) const {
   uint8_t emitted = 0;
 #if defined(ESP32_PLATFORM)
@@ -1296,6 +1407,10 @@ size_t BTHomeScanner::formatDeviceList(char* dest, size_t len, unsigned long fre
     return 0;
   }
 
+#if !defined(ESP32_PLATFORM)
+  (void) freshness_ms;
+  return snprintf(dest, len, "No BTHome devices cached");
+#else
   dest[0] = 0;
   const uint8_t count = getDeviceCount();
   if (count == 0) {
@@ -1324,6 +1439,13 @@ size_t BTHomeScanner::formatDeviceList(char* dest, size_t len, unsigned long fre
     if (device.encrypted) {
       ok = ok && appendToBuffer(dest, len, used, " enc");
     } else {
+      float temperature = 0.0f;
+      float humidity = 0.0f;
+      float wind_speed = 0.0f;
+      float gust = 0.0f;
+      if (getMetReportObservation(device, nullptr, 0, temperature, humidity, wind_speed, gust, freshness_ms)) {
+        ok = ok && appendToBuffer(dest, len, used, " met");
+      }
       MeasurementRef ordered[TELEMETRY_FIELD_COUNT];
       const uint8_t ordered_count = collectOrderedMeasurements(device, measurement_retention_ms, ordered, TELEMETRY_FIELD_COUNT);
       for (uint8_t i = 0; i < ordered_count; i++) {
@@ -1346,6 +1468,7 @@ size_t BTHomeScanner::formatDeviceList(char* dest, size_t len, unsigned long fre
     appendToBuffer(dest, len, used, " +%u", count - index);
   }
   return used;
+#endif
 }
 
 size_t BTHomeScanner::formatDeviceFields(char* dest, size_t len, uint8_t device_index, unsigned long freshness_ms) const {
@@ -1353,6 +1476,11 @@ size_t BTHomeScanner::formatDeviceFields(char* dest, size_t len, uint8_t device_
     return 0;
   }
 
+#if !defined(ESP32_PLATFORM)
+  (void) device_index;
+  (void) freshness_ms;
+  return snprintf(dest, len, "Err - unsupported");
+#else
   dest[0] = 0;
   const DeviceCache* device = findDeviceByIndex(_devices, device_index);
   if (device == nullptr) {
@@ -1385,6 +1513,7 @@ size_t BTHomeScanner::formatDeviceFields(char* dest, size_t len, uint8_t device_
     }
   }
   return used;
+#endif
 }
 
 size_t BTHomeScanner::formatDeviceFieldValue(char* dest,
@@ -1396,6 +1525,12 @@ size_t BTHomeScanner::formatDeviceFieldValue(char* dest,
     return 0;
   }
 
+#if !defined(ESP32_PLATFORM)
+  (void) device_index;
+  (void) field_index;
+  (void) freshness_ms;
+  return snprintf(dest, len, "Err - unsupported");
+#else
   dest[0] = 0;
   const DeviceCache* device = findDeviceByIndex(_devices, device_index);
   if (device == nullptr) {
@@ -1419,9 +1554,15 @@ size_t BTHomeScanner::formatDeviceFieldValue(char* dest,
                   sizeof(value),
                   ordered[field_index].slot->object_id == 0x40);
   return snprintf(dest, len, "%u:%u %s=%s", device_index, field_index, label, value);
+#endif
 }
 
 void BTHomeScanner::printDevices(Print& out, unsigned long freshness_ms) const {
+#if !defined(ESP32_PLATFORM)
+  (void) freshness_ms;
+  out.println("No BTHome devices cached");
+  return;
+#else
   if (getDeviceCount() == 0) {
     out.println("No BTHome devices cached");
     return;
@@ -1452,6 +1593,13 @@ void BTHomeScanner::printDevices(Print& out, unsigned long freshness_ms) const {
       index++;
       continue;
     }
+    float temperature = 0.0f;
+    float humidity = 0.0f;
+    float wind_speed = 0.0f;
+    float gust = 0.0f;
+    if (getMetReportObservation(device, nullptr, 0, temperature, humidity, wind_speed, gust, freshness_ms)) {
+      out.print(" met");
+    }
     if (device.name[0] != 0) {
       out.print(" name=");
       out.print(device.name);
@@ -1469,6 +1617,108 @@ void BTHomeScanner::printDevices(Print& out, unsigned long freshness_ms) const {
     out.println();
     index++;
   }
+#endif
+}
+
+bool BTHomeScanner::isMetReportCapable(uint8_t device_index, unsigned long freshness_ms) const {
+  float temperature = 0.0f;
+  float humidity = 0.0f;
+  float wind_speed = 0.0f;
+  float gust = 0.0f;
+  uint8_t mac[6];
+  return getMetReportObservationByIndex(
+      device_index, mac, nullptr, 0, temperature, humidity, wind_speed, gust, freshness_ms);
+}
+
+bool BTHomeScanner::getMetReportObservationByIndex(uint8_t device_index,
+                                                   uint8_t mac[6],
+                                                   char* label,
+                                                   size_t label_len,
+                                                   float& temperature,
+                                                   float& humidity,
+                                                   float& wind_speed,
+                                                   float& gust,
+                                                   unsigned long freshness_ms) const {
+  const DeviceCache* device = findDeviceByIndex(_devices, device_index);
+  if (device == nullptr) {
+    return false;
+  }
+  if (mac != nullptr) {
+    memcpy(mac, device->mac, 6);
+  }
+#if defined(ESP32_PLATFORM)
+  return getMetReportObservation(*device, label, label_len, temperature, humidity, wind_speed, gust, freshness_ms);
+#else
+  (void) label;
+  (void) label_len;
+  (void) temperature;
+  (void) humidity;
+  (void) wind_speed;
+  (void) gust;
+  (void) freshness_ms;
+  return false;
+#endif
+}
+
+bool BTHomeScanner::getMetReportObservationByMac(const uint8_t mac[6],
+                                                 char* label,
+                                                 size_t label_len,
+                                                 float& temperature,
+                                                 float& humidity,
+                                                 float& wind_speed,
+                                                 float& gust,
+                                                 unsigned long freshness_ms) const {
+  const DeviceCache* device = findDeviceByMac(mac);
+  if (device == nullptr) {
+    return false;
+  }
+#if defined(ESP32_PLATFORM)
+  return getMetReportObservation(*device, label, label_len, temperature, humidity, wind_speed, gust, freshness_ms);
+#else
+  (void) label;
+  (void) label_len;
+  (void) temperature;
+  (void) humidity;
+  (void) wind_speed;
+  (void) gust;
+  (void) freshness_ms;
+  return false;
+#endif
+}
+
+bool BTHomeScanner::getRainMeasurementByMac(const uint8_t mac[6],
+                                            float& rain,
+                                            unsigned long freshness_ms) const {
+  const DeviceCache* device = findDeviceByMac(mac);
+  if (device == nullptr) {
+    return false;
+  }
+#if defined(ESP32_PLATFORM)
+  return getRainMeasurement(*device, rain, freshness_ms);
+#else
+  (void) rain;
+  (void) freshness_ms;
+  return false;
+#endif
+}
+
+bool BTHomeScanner::formatDeviceLabelByMac(const uint8_t mac[6], char* dest, size_t len) const {
+  if (len == 0) {
+    return false;
+  }
+
+  const DeviceCache* device = findDeviceByMac(mac);
+#if defined(ESP32_PLATFORM)
+  if (device != nullptr) {
+    formatDeviceLabel(*device, dest, len);
+  } else {
+    formatMac(mac, dest, len);
+  }
+#else
+  (void) device;
+  formatMac(mac, dest, len);
+#endif
+  return true;
 }
 
 bool BTHomeScanner::parseMac(const char* text, uint8_t mac[6]) {

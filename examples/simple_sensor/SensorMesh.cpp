@@ -1,5 +1,7 @@
 #include "SensorMesh.h"
 #include <helpers/sensors/LPPDataHelpers.h>
+#include <ctype.h>
+#include <math.h>
 
 /* ------------------------------ Config -------------------------------- */
 
@@ -66,7 +68,7 @@
 
 #define BTHOME_CONFIG_FILE "/bthome_cfg"
 #define BTHOME_CONFIG_MAGIC 0x42544831UL
-#define BTHOME_CONFIG_VERSION 3
+#define BTHOME_CONFIG_VERSION 4
 
 static File openAppend(FILESYSTEM* _fs, const char* fname) {
   #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -222,6 +224,130 @@ static uint8_t putFloat(uint8_t * dest, float value, uint8_t size, uint32_t mult
   return size;
 }
 
+static const char* getBTHomeMetSlotName(uint8_t slot_mask) {
+  switch (slot_mask) {
+    case 1:
+      return "morning";
+    case 2:
+      return "midday";
+    case 4:
+      return "evening";
+    default:
+      return "day";
+  }
+}
+
+static uint8_t getBTHomeMetSlotForTime(uint32_t seconds_of_day) {
+  if (seconds_of_day >= 18UL * 60UL * 60UL) {
+    return 4;
+  }
+  if (seconds_of_day >= 12UL * 60UL * 60UL) {
+    return 2;
+  }
+  if (seconds_of_day >= 6UL * 60UL * 60UL) {
+    return 1;
+  }
+  return 0;
+}
+
+static uint8_t parseBTHomeMetPublishMask(const char* text) {
+  if (strcmp(text, "off") == 0) {
+    return 0;
+  }
+  if (strcmp(text, "morning") == 0) {
+    return 1;
+  }
+  if (strcmp(text, "midday") == 0) {
+    return 2;
+  }
+  if (strcmp(text, "evening") == 0) {
+    return 4;
+  }
+  if (strcmp(text, "all") == 0) {
+    return 1 | 2 | 4;
+  }
+  return 0xFF;
+}
+
+static void formatBTHomeMetPublishMask(uint8_t mask, char* dest, size_t len) {
+  if (len == 0) {
+    return;
+  }
+  if (mask == 0) {
+    strncpy(dest, "off", len - 1);
+    dest[len - 1] = 0;
+    return;
+  }
+  if (mask == (1 | 2 | 4)) {
+    strncpy(dest, "all", len - 1);
+    dest[len - 1] = 0;
+    return;
+  }
+  strncpy(dest, getBTHomeMetSlotName(mask), len - 1);
+  dest[len - 1] = 0;
+}
+
+static void formatBTHomeMetLabel(const char* src, char* dest, size_t len) {
+  if (len == 0) {
+    return;
+  }
+  size_t used = 0;
+  while (src != nullptr && *src != 0 && used + 1 < len) {
+    char c = *src++;
+    if (c == '\n' || c == '\r') {
+      break;
+    }
+    if (c == ' ') {
+      c = '_';
+    }
+    dest[used++] = c;
+  }
+  dest[used] = 0;
+}
+
+static int decodeBase64Secret(const char* src, uint8_t* dest, size_t dest_len) {
+  uint32_t buffer = 0;
+  int bits = 0;
+  size_t out_len = 0;
+
+  while (*src != 0) {
+    char c = *src++;
+    if (isspace((unsigned char) c)) {
+      continue;
+    }
+    if (c == '=') {
+      break;
+    }
+
+    int value;
+    if (c >= 'A' && c <= 'Z') {
+      value = c - 'A';
+    } else if (c >= 'a' && c <= 'z') {
+      value = c - 'a' + 26;
+    } else if (c >= '0' && c <= '9') {
+      value = c - '0' + 52;
+    } else if (c == '+') {
+      value = 62;
+    } else if (c == '/') {
+      value = 63;
+    } else {
+      return -1;
+    }
+
+    buffer = (buffer << 6) | (uint32_t) value;
+    bits += 6;
+    while (bits >= 8) {
+      bits -= 8;
+      if (out_len >= dest_len) {
+        return -1;
+      }
+      dest[out_len++] = (uint8_t) ((buffer >> bits) & 0xFF);
+    }
+  }
+
+  return (int) out_len;
+}
+
 void SensorMesh::buildTelemetry(uint8_t requester_permissions) {
   telemetry.reset();
   telemetry.addVoltage(TELEM_CHANNEL_SELF, (float) board.getBattMilliVolts() / 1000.0f);
@@ -241,6 +367,327 @@ uint8_t SensorMesh::getNextTelemetryChannel() {
     reader.skipData(type);
   }
   return max_channel + 1;
+}
+
+bool SensorMesh::configureBTHomeMetTarget(uint8_t device_index) {
+  uint8_t mac[6];
+  float temperature = 0.0f;
+  float humidity = 0.0f;
+  float wind_speed = 0.0f;
+  float gust = 0.0f;
+
+  if (!_bthome.getMetReportObservationByIndex(
+          device_index,
+          mac,
+          nullptr,
+          0,
+          temperature,
+          humidity,
+          wind_speed,
+          gust,
+          BTHomeScanner::DEFAULT_FRESHNESS_MS)) {
+    return false;
+  }
+
+  memcpy(_met_report.target_mac, mac, sizeof(mac));
+  _met_report.target_configured = 1;
+  _met_report.clearHistory();
+  recordBTHomeMetHistory();
+  return true;
+}
+
+bool SensorMesh::configureBTHomeMetChannel(const char* psk_base64) {
+  mesh::GroupChannel channel;
+  memset(&channel, 0, sizeof(channel));
+
+  int secret_len = decodeBase64Secret(psk_base64, channel.secret, sizeof(channel.secret));
+  if (secret_len != 16 && secret_len != 32) {
+    return false;
+  }
+
+  mesh::Utils::sha256(channel.hash, sizeof(channel.hash), channel.secret, secret_len);
+  _met_report.channel = channel;
+  _met_report.channel_secret_len = (uint8_t) secret_len;
+  return true;
+}
+
+void SensorMesh::recordBTHomeMetHistory() {
+  if (!_met_report.hasTarget()) {
+    return;
+  }
+
+  float temperature = 0.0f;
+  float humidity = 0.0f;
+  float wind_speed = 0.0f;
+  float gust = 0.0f;
+  if (!_bthome.getMetReportObservationByMac(
+          _met_report.target_mac,
+          nullptr,
+          0,
+          temperature,
+          humidity,
+          wind_speed,
+          gust,
+          BTHomeScanner::DEFAULT_FRESHNESS_MS)) {
+    return;
+  }
+
+  _met_report.temperature_history.recordData(getRTCClock(), temperature);
+  _met_report.humidity_history.recordData(getRTCClock(), humidity);
+  _met_report.wind_speed_history.recordData(getRTCClock(), wind_speed);
+  _met_report.gust_history.recordData(getRTCClock(), gust);
+
+  float rain = 0.0f;
+  if (_bthome.getRainMeasurementByMac(
+          _met_report.target_mac,
+          rain,
+          BTHomeScanner::DEFAULT_FRESHNESS_MS)) {
+    _met_report.rain_history.recordData(getRTCClock(), rain);
+  }
+}
+
+bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_name) const {
+  if (len == 0 || !_met_report.hasTarget()) {
+    return false;
+  }
+
+  char label[24];
+  float temperature = 0.0f;
+  float humidity = 0.0f;
+  float wind_speed = 0.0f;
+  float gust = 0.0f;
+  if (!_bthome.getMetReportObservationByMac(
+          _met_report.target_mac,
+          label,
+          sizeof(label),
+          temperature,
+          humidity,
+          wind_speed,
+          gust,
+          BTHomeScanner::DEFAULT_FRESHNESS_MS)) {
+    return false;
+  }
+
+  uint32_t now = getRTCClock()->getCurrentTime();
+  uint32_t seconds_of_day = now % 86400UL;
+  uint32_t start_secs_ago = max(seconds_of_day, BTHomeMetReportState::HISTORY_INTERVAL_SECS);
+
+  MinMaxAvg temperature_stats;
+  MinMaxAvg humidity_stats;
+  MinMaxAvg wind_stats;
+  MinMaxAvg gust_stats;
+  _met_report.temperature_history.calcMinMaxAvg(getRTCClock(), start_secs_ago, 0, &temperature_stats, 0, LPP_TEMPERATURE);
+  _met_report.humidity_history.calcMinMaxAvg(getRTCClock(), start_secs_ago, 0, &humidity_stats, 0, LPP_RELATIVE_HUMIDITY);
+  _met_report.wind_speed_history.calcMinMaxAvg(getRTCClock(), start_secs_ago, 0, &wind_stats, 0, LPP_SPEED);
+  _met_report.gust_history.calcMinMaxAvg(getRTCClock(), start_secs_ago, 0, &gust_stats, 0, LPP_GUST);
+
+  if (isnan(temperature_stats._avg) || isnan(humidity_stats._avg) || isnan(wind_stats._avg) || isnan(gust_stats._avg)) {
+    return false;
+  }
+
+  char rain_suffix[20];
+  rain_suffix[0] = 0;
+  if (seconds_of_day > 0) {
+    float rain_first = 0.0f;
+    float rain_last = 0.0f;
+    if (_met_report.rain_history.calcFirstLast(getRTCClock(), seconds_of_day, 0, rain_first, rain_last) &&
+        rain_last + 0.01f >= rain_first) {
+      snprintf(rain_suffix, sizeof(rain_suffix), " R+%.1fmm", max(0.0f, rain_last - rain_first));
+    }
+  }
+
+  char short_label[16];
+  formatBTHomeMetLabel(label, short_label, sizeof(short_label));
+  const char* report_slot = slot_name != nullptr ? slot_name : getBTHomeMetSlotName(getBTHomeMetSlotForTime(seconds_of_day));
+
+  int written = snprintf(dest,
+                         len,
+                         "wx %s %s T%.1f(%.1f/%.1f) RH%.0f(%.0f/%.0f) W%.1f a%.1f G%.1f m%.1f%s",
+                         report_slot,
+                         short_label,
+                         temperature,
+                         temperature_stats._min,
+                         temperature_stats._max,
+                         humidity,
+                         humidity_stats._min,
+                         humidity_stats._max,
+                         wind_speed,
+                         wind_stats._avg,
+                         gust,
+                         gust_stats._max,
+                         rain_suffix);
+  return written > 0 && (size_t) written < len;
+}
+
+bool SensorMesh::publishBTHomeMetReport(const char* slot_name) {
+  if (!_met_report.hasChannel()) {
+    return false;
+  }
+
+  recordBTHomeMetHistory();
+
+  char report[128];
+  if (!buildBTHomeMetReport(report, sizeof(report), slot_name)) {
+    return false;
+  }
+
+  char text[160];
+  int written = snprintf(text, sizeof(text), "%s: %s", _prefs.node_name, report);
+  if (written <= 0) {
+    return false;
+  }
+
+  uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
+  uint8_t payload[5 + sizeof(text)];
+  memcpy(payload, &timestamp, 4);
+  payload[4] = (TXT_TYPE_PLAIN << 2);
+
+  size_t text_len = min((size_t) strlen(text), sizeof(text) - 1);
+  memcpy(&payload[5], text, text_len);
+
+  mesh::Packet* packet = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, _met_report.channel, payload, 5 + text_len);
+  if (packet == nullptr) {
+    return false;
+  }
+
+  sendFlood(packet);
+  return true;
+}
+
+void SensorMesh::maybePublishBTHomeMetReport() {
+  if (!_met_report.hasTarget() || !_met_report.hasChannel() || _met_report.publish_mask == 0) {
+    return;
+  }
+
+  uint32_t now = getRTCClock()->getCurrentTime();
+  uint32_t day = now / 86400UL;
+  uint32_t seconds_of_day = now % 86400UL;
+  if (_met_report.last_publish_day != day) {
+    _met_report.last_publish_day = day;
+    _met_report.last_publish_mask = 0;
+  }
+
+  uint8_t current_slot = getBTHomeMetSlotForTime(seconds_of_day);
+  if ((current_slot & _met_report.publish_mask) == 0) {
+    return;
+  }
+  if ((_met_report.last_publish_mask & current_slot) != 0) {
+    return;
+  }
+
+  if (publishBTHomeMetReport(getBTHomeMetSlotName(current_slot))) {
+    _met_report.last_publish_mask |= current_slot;
+  }
+}
+
+size_t SensorMesh::formatBTHomeMetStatus(char* dest, size_t len) const {
+  if (len == 0) {
+    return 0;
+  }
+
+  char target[24];
+  if (_met_report.hasTarget()) {
+    _bthome.formatDeviceLabelByMac(_met_report.target_mac, target, sizeof(target));
+  } else {
+    strcpy(target, "off");
+  }
+
+  char schedule[16];
+  formatBTHomeMetPublishMask(_met_report.publish_mask, schedule, sizeof(schedule));
+
+  char channel_hash[PATH_HASH_SIZE * 2 + 1];
+  if (_met_report.hasChannel()) {
+    mesh::Utils::toHex(channel_hash, _met_report.channel.hash, sizeof(_met_report.channel.hash));
+  } else {
+    strcpy(channel_hash, "off");
+  }
+
+  float temperature = 0.0f;
+  float humidity = 0.0f;
+  float wind_speed = 0.0f;
+  float gust = 0.0f;
+  bool ready = _met_report.hasTarget() &&
+      _bthome.getMetReportObservationByMac(
+          _met_report.target_mac,
+          nullptr,
+          0,
+          temperature,
+          humidity,
+          wind_speed,
+          gust,
+          BTHomeScanner::DEFAULT_FRESHNESS_MS);
+
+  return snprintf(dest,
+                  len,
+                  "met target=%s ready=%s sched=%s chan=%s",
+                  target,
+                  ready ? "yes" : "no",
+                  schedule,
+                  channel_hash);
+}
+
+bool SensorMesh::handleBTHomeMetCommand(char* command, char* reply) {
+  if (strcmp(command, "bthome met status") == 0) {
+    formatBTHomeMetStatus(reply, 160);
+  } else if (strcmp(command, "bthome met today") == 0 || strcmp(command, "bthome met now") == 0) {
+    recordBTHomeMetHistory();
+    if (!buildBTHomeMetReport(reply, 160, nullptr)) {
+      strcpy(reply, "Err - no met history");
+    }
+  } else if (strcmp(command, "bthome met publish") == 0) {
+    if (!_met_report.hasChannel()) {
+      strcpy(reply, "Err - no channel");
+    } else if (publishBTHomeMetReport(nullptr)) {
+      strcpy(reply, "ok");
+    } else {
+      strcpy(reply, "Err - no met report");
+    }
+  } else if (strcmp(command, "bthome met clear") == 0) {
+    _met_report.clearTarget();
+    _met_report.publish_mask = 0;
+    _met_report.clearChannel();
+    saveBTHomeConfig();
+    strcpy(reply, "ok");
+  } else if (memcmp(command, "bthome met set ", 15) == 0) {
+    char* end = nullptr;
+    long index = strtol(&command[15], &end, 10);
+    if (end == &command[15] || *end != 0 || index < 0 || index > 255) {
+      strcpy(reply, "Err - bad index");
+    } else if (!configureBTHomeMetTarget((uint8_t) index)) {
+      strcpy(reply, "Err - not met");
+    } else {
+      saveBTHomeConfig();
+      strcpy(reply, "ok");
+    }
+  } else if (memcmp(command, "bthome met channel ", 19) == 0) {
+    const char* arg = &command[19];
+    if (strcmp(arg, "off") == 0) {
+      _met_report.clearChannel();
+      saveBTHomeConfig();
+      strcpy(reply, "ok");
+    } else if (!configureBTHomeMetChannel(arg)) {
+      strcpy(reply, "Err - bad psk");
+    } else {
+      saveBTHomeConfig();
+      char hash_hex[PATH_HASH_SIZE * 2 + 1];
+      mesh::Utils::toHex(hash_hex, _met_report.channel.hash, sizeof(_met_report.channel.hash));
+      snprintf(reply, 160, "ok hash=%s", hash_hex);
+    }
+  } else if (memcmp(command, "bthome met schedule ", 20) == 0) {
+    uint8_t mask = parseBTHomeMetPublishMask(&command[20]);
+    if (mask == 0xFF) {
+      strcpy(reply, "Err - bad schedule");
+    } else {
+      _met_report.publish_mask = mask;
+      _met_report.last_publish_day = 0;
+      _met_report.last_publish_mask = 0;
+      saveBTHomeConfig();
+      formatBTHomeMetStatus(reply, 160);
+    }
+  } else {
+    strcpy(reply, "bthome met status|set <index>|today|publish|clear|channel <psk|off>|schedule <off|morning|midday|evening|all>");
+  }
+  return true;
 }
 
 uint8_t SensorMesh::handleRequest(uint8_t perms, uint32_t sender_timestamp, uint8_t req_type, uint8_t* payload, size_t payload_len) {
@@ -542,6 +989,8 @@ bool SensorMesh::handleBTHomeCommand(uint32_t sender_timestamp, char* command, c
     if (sender_timestamp == 0) {
       _bthome.printDevices(Serial, BTHomeScanner::DEFAULT_FRESHNESS_MS);
     }
+  } else if (memcmp(command, "bthome met", 10) == 0 && (command[10] == 0 || command[10] == ' ')) {
+    return handleBTHomeMetCommand(command, reply);
   } else if (memcmp(command, "bthome get ", 11) == 0) {
     char* end = nullptr;
     long device_index = strtol(&command[11], &end, 10);
@@ -599,7 +1048,7 @@ bool SensorMesh::handleBTHomeCommand(uint32_t sender_timestamp, char* command, c
       strcpy(reply, "ok");
     }
   } else {
-    strcpy(reply, "bthome on|off|status|list|<index>|get <index> <field>|add <index>|rm <index>");
+    strcpy(reply, "bthome on|off|status|list|<index>|get <index> <field>|add <index>|rm <index>|met ...");
   }
   return true;
 }
@@ -906,12 +1355,23 @@ void SensorMesh::loadBTHomeConfig() {
     uint8_t target_macs[4][6];
   };
 
+  struct LegacyBTHomeConfigV3File {
+    uint32_t magic;
+    uint8_t version;
+    uint8_t enabled;
+    uint8_t target_count;
+    uint8_t reserved;
+    uint8_t target_macs[BTHomeScanner::MAX_TARGETS][6];
+  };
+
   BTHomeConfigFile cfg;
   memset(&cfg, 0, sizeof(cfg));
   LegacyBTHomeConfigV1File legacy_v1_cfg;
   memset(&legacy_v1_cfg, 0, sizeof(legacy_v1_cfg));
   LegacyBTHomeConfigV2File legacy_v2_cfg;
   memset(&legacy_v2_cfg, 0, sizeof(legacy_v2_cfg));
+  LegacyBTHomeConfigV3File legacy_v3_cfg;
+  memset(&legacy_v3_cfg, 0, sizeof(legacy_v3_cfg));
 
 #if defined(RP2040_PLATFORM)
   File file = _fs->open(BTHOME_CONFIG_FILE, "r");
@@ -921,6 +1381,9 @@ void SensorMesh::loadBTHomeConfig() {
   if (!file) {
     _bthome.setEnabled(false);
     _bthome.clearTargetMacs();
+    _met_report.clearTarget();
+    _met_report.publish_mask = 0;
+    _met_report.clearChannel();
     return;
   }
 
@@ -929,12 +1392,40 @@ void SensorMesh::loadBTHomeConfig() {
 
   _bthome.setEnabled(false);
   _bthome.clearTargetMacs();
+  _met_report.clearTarget();
+  _met_report.publish_mask = 0;
+  _met_report.clearChannel();
 
   if (loaded >= sizeof(cfg) && cfg.magic == BTHOME_CONFIG_MAGIC && cfg.version == BTHOME_CONFIG_VERSION) {
     _bthome.setEnabled(cfg.enabled != 0);
     uint8_t count = min(cfg.target_count, BTHomeScanner::MAX_TARGETS);
     for (uint8_t i = 0; i < count; i++) {
       _bthome.addTargetMac(cfg.target_macs[i]);
+    }
+    if (cfg.met_target_configured != 0) {
+      memcpy(_met_report.target_mac, cfg.met_target_mac, sizeof(_met_report.target_mac));
+      _met_report.target_configured = 1;
+    }
+    _met_report.publish_mask = cfg.met_publish_mask &
+        (BTHOME_MET_PUBLISH_MORNING | BTHOME_MET_PUBLISH_MIDDAY | BTHOME_MET_PUBLISH_EVENING);
+    if (cfg.met_channel_secret_len == 16 || cfg.met_channel_secret_len == 32) {
+      memcpy(_met_report.channel.secret, cfg.met_channel_secret, sizeof(_met_report.channel.secret));
+      mesh::Utils::sha256(
+          _met_report.channel.hash,
+          sizeof(_met_report.channel.hash),
+          _met_report.channel.secret,
+          cfg.met_channel_secret_len);
+      _met_report.channel_secret_len = cfg.met_channel_secret_len;
+    }
+    return;
+  }
+
+  memcpy(&legacy_v3_cfg, &cfg, min((size_t) loaded, sizeof(legacy_v3_cfg)));
+  if (loaded >= sizeof(legacy_v3_cfg) && legacy_v3_cfg.magic == BTHOME_CONFIG_MAGIC && legacy_v3_cfg.version == 3) {
+    _bthome.setEnabled(legacy_v3_cfg.enabled != 0);
+    uint8_t count = min(legacy_v3_cfg.target_count, BTHomeScanner::MAX_TARGETS);
+    for (uint8_t i = 0; i < count; i++) {
+      _bthome.addTargetMac(legacy_v3_cfg.target_macs[i]);
     }
     return;
   }
@@ -974,6 +1465,15 @@ void SensorMesh::saveBTHomeConfig() {
     if (_bthome.getTargetMac(i, target_mac)) {
       memcpy(cfg.target_macs[i], target_mac, sizeof(cfg.target_macs[i]));
     }
+  }
+  cfg.met_target_configured = _met_report.hasTarget() ? 1 : 0;
+  cfg.met_publish_mask = _met_report.publish_mask;
+  cfg.met_channel_secret_len = _met_report.hasChannel() ? _met_report.channel_secret_len : 0;
+  if (cfg.met_target_configured != 0) {
+    memcpy(cfg.met_target_mac, _met_report.target_mac, sizeof(cfg.met_target_mac));
+  }
+  if (cfg.met_channel_secret_len != 0) {
+    memcpy(cfg.met_channel_secret, _met_report.channel.secret, sizeof(cfg.met_channel_secret));
   }
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -1161,9 +1661,12 @@ void SensorMesh::loop() {
     buildTelemetry(0xFF);
 
     onSensorDataRead();
+    recordBTHomeMetHistory();
 
     last_read_time = curr;
   }
+
+  maybePublishBTHomeMetReport();
 
   // check the alert send queue
   if (num_alert_tasks > 0) {

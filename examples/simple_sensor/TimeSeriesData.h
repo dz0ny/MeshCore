@@ -10,20 +10,21 @@ struct MinMaxAvg {
 
 class TimeSeriesData {
   float* data;
-  int num_slots, next;
+  int num_slots, next, num_filled;
   uint32_t last_timestamp;
   uint32_t interval_secs;
 
 public:
-  TimeSeriesData(float* array, int num, uint32_t secs) : num_slots(num), data(array), last_timestamp(0), next(0), interval_secs(secs) { 
+  TimeSeriesData(float* array, int num, uint32_t secs) : num_slots(num), data(array), next(0), num_filled(0), last_timestamp(0), interval_secs(secs) {
     memset(data, 0, sizeof(float)*num);
   }
-  TimeSeriesData(int num, uint32_t secs) : num_slots(num), last_timestamp(0), next(0), interval_secs(secs) {
+  TimeSeriesData(int num, uint32_t secs) : num_slots(num), next(0), num_filled(0), last_timestamp(0), interval_secs(secs) {
     data = new float[num];
     memset(data, 0, sizeof(float)*num);
   }
 
+  void clear();
   void recordData(mesh::RTCClock* clock, float value);
   void calcMinMaxAvg(mesh::RTCClock* clock, uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg* dest, uint8_t channel, uint8_t lpp_type) const;
+  bool calcFirstLast(mesh::RTCClock* clock, uint32_t start_secs_ago, uint32_t end_secs_ago, float& first, float& last) const;
 };
-

@@ -920,6 +920,13 @@ region save
 - `bthome get <index> <field>`
 - `bthome add <index>`
 - `bthome rm <index>`
+- `bthome met status`
+- `bthome met set <index>`
+- `bthome met today`
+- `bthome met publish`
+- `bthome met clear`
+- `bthome met channel <psk_base64|off>`
+- `bthome met schedule <off|morning|midday|evening|all>`
 
 **Parameters:**
 - `index`: Device index from `bthome list`
@@ -931,10 +938,14 @@ region save
 - BLE scanning starts automatically while `bthome` is enabled.
 - The scanner caches nearby BTHome devices in RAM only; selected targets and `enabled` are persisted. Targets are saved as resolved MAC addresses.
 - `bthome list` returns the found device list with indexes, MAC addresses, and any fresh decoded BTHome values that fit in the reply, including binary states and recent button or dimmer events.
+- Devices marked `met` in `bthome list` expose temperature, relative humidity, wind speed, and gust, which makes them met-report-capable.
 - `bthome <index>` returns the discovered field types for one cached device using stable field indexes.
 - `bthome get <index> <field>` returns the current value for one discovered field on one cached device.
 - `bthome add <index>` adds a device from the current cache to the selected target set. `bthome rm <index>` removes one selected device.
 - When enabled and targets are set, BTHome numeric values, binary states, button events, and dimmer steps are appended to the node telemetry after local sensors in target order using the closest supported CayenneLPP field types. `text` and `raw` objects are ignored.
+- `bthome met set <index>` selects one met-report-capable device and starts a rolling 24-hour in-memory history for temperature, humidity, wind speed, and gust. If the same device also exposes BTHome rain, rain history is tracked too.
+- `bthome met today` formats a compact day-to-date meteorological summary for the selected device. When rain is available, the report also includes the rain delta accumulated from the start of the UTC day to the post time. `bthome met publish` sends that summary immediately to the configured group channel.
+- `bthome met channel <psk_base64>` stores one publish channel secret and reports the resulting 1-byte channel hash. `bthome met schedule ...` enables automatic publishes at 06:00, 12:00, and/or 18:00 UTC.
 
 ---
 

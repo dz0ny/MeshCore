@@ -1,5 +1,12 @@
 #include "TimeSeriesData.h"
 
+void TimeSeriesData::clear() {
+  memset(data, 0, sizeof(float) * num_slots);
+  last_timestamp = 0;
+  next = 0;
+  num_filled = 0;
+}
+
 void TimeSeriesData::recordData(mesh::RTCClock* clock, float value) {
   uint32_t now = clock->getCurrentTime();
   if (now >= last_timestamp + interval_secs) {
@@ -7,11 +14,14 @@ void TimeSeriesData::recordData(mesh::RTCClock* clock, float value) {
 
     data[next] = value;   // append to cycle table
     next = (next + 1) % num_slots;
+    if (num_filled < num_slots) {
+      num_filled++;
+    }
   }
 }
 
 void TimeSeriesData::calcMinMaxAvg(mesh::RTCClock* clock, uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg* dest, uint8_t channel, uint8_t lpp_type) const {
-  int i = next, n = num_slots;
+  int i = next, n = num_filled;
   uint32_t ago = clock->getCurrentTime() - last_timestamp;
   int num_values = 0;
   float total = 0.0f;
@@ -42,4 +52,26 @@ void TimeSeriesData::calcMinMaxAvg(mesh::RTCClock* clock, uint32_t start_secs_ag
   } else {
     dest->_max = dest->_min = dest->_avg = NAN;
   }
+}
+
+bool TimeSeriesData::calcFirstLast(mesh::RTCClock* clock, uint32_t start_secs_ago, uint32_t end_secs_ago, float& first, float& last) const {
+  int i = next, n = num_filled;
+  uint32_t ago = clock->getCurrentTime() - last_timestamp;
+  bool found = false;
+
+  while (n > 0) {
+    n--;
+    i = (i + num_slots - 1) % num_slots;  // go back by one
+    if (ago >= end_secs_ago && ago < start_secs_ago) {
+      float v = data[i];
+      if (!found) {
+        last = v;
+      }
+      first = v;
+      found = true;
+    }
+    ago += interval_secs;
+  }
+
+  return found;
 }
