@@ -455,15 +455,11 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
   uint32_t start_secs_ago = max(seconds_of_day, BTHomeMetReportState::HISTORY_INTERVAL_SECS);
 
   MinMaxAvg temperature_stats;
-  MinMaxAvg humidity_stats;
-  MinMaxAvg wind_stats;
   MinMaxAvg gust_stats;
   _met_report.temperature_history.calcMinMaxAvg(getRTCClock(), start_secs_ago, 0, &temperature_stats, 0, LPP_TEMPERATURE);
-  _met_report.humidity_history.calcMinMaxAvg(getRTCClock(), start_secs_ago, 0, &humidity_stats, 0, LPP_RELATIVE_HUMIDITY);
-  _met_report.wind_speed_history.calcMinMaxAvg(getRTCClock(), start_secs_ago, 0, &wind_stats, 0, LPP_SPEED);
   _met_report.gust_history.calcMinMaxAvg(getRTCClock(), start_secs_ago, 0, &gust_stats, 0, LPP_GUST);
 
-  if (isnan(temperature_stats._avg) || isnan(humidity_stats._avg) || isnan(wind_stats._avg) || isnan(gust_stats._avg)) {
+  if (isnan(temperature_stats._avg) || isnan(gust_stats._avg)) {
     return false;
   }
 
@@ -480,12 +476,11 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
 
   int written = snprintf(dest,
                          len,
-                         "\xF0\x9F\x8C\xA1%.1fC \xF0\x9F\x92\xA7%.0f%% \xF0\x9F\x92\xA8%.1f/%.1f/%.1fm/s "
-                         "\xF0\x9F\x93\x89%.1fC \xF0\x9F\x93\x88%.1fC%s",
+                         "\xF0\x9F\x8C\xA1%.1fC \xF0\x9F\x92\xA7%.0f%% \xF0\x9F\x8C\x80%.1f\xE2\x86\x92%.1fm/s "
+                         "\xE2\xAC\x87%.1fC \xE2\xAC\x86%.1fC%s",
                          temperature,
                          humidity,
                          wind_speed,
-                         wind_stats._avg,
                          gust_stats._max,
                          temperature_stats._min,
                          temperature_stats._max,
