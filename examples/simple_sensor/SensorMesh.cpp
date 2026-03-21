@@ -69,6 +69,7 @@
 #define BTHOME_CONFIG_FILE "/bthome_cfg"
 #define BTHOME_CONFIG_MAGIC 0x42544831UL
 #define BTHOME_CONFIG_VERSION 4
+#define BTHOME_MET_HISTORY_PAGE_SIZE 12
 
 static File openAppend(FILESYSTEM* _fs, const char* fname) {
   #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -488,6 +489,70 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
   return written > 0 && (size_t) written < len;
 }
 
+bool SensorMesh::formatBTHomeMetHistory(char* dest, size_t len, uint8_t measurement_id, uint8_t page) const {
+  if (len == 0 || !_met_report.hasTarget()) {
+    return false;
+  }
+
+  uint8_t precision = 0;
+  const TimeSeriesData* history = nullptr;
+  switch (measurement_id) {
+    case 1:
+      precision = 1;
+      history = &_met_report.temperature_history;
+      break;
+    case 2:
+      precision = 0;
+      history = &_met_report.humidity_history;
+      break;
+    case 3:
+      precision = 1;
+      history = &_met_report.wind_speed_history;
+      break;
+    case 4:
+      precision = 1;
+      history = &_met_report.gust_history;
+      break;
+    case 5:
+      precision = 1;
+      history = &_met_report.rain_history;
+      break;
+    default:
+      return false;
+  }
+
+  float values[BTHomeMetReportState::HISTORY_SLOTS];
+  int total = history->copyChronological(values, BTHomeMetReportState::HISTORY_SLOTS);
+  if (total <= 0) {
+    return false;
+  }
+
+  int newest_end = total - ((int) page * BTHOME_MET_HISTORY_PAGE_SIZE);
+  if (newest_end <= 0) {
+    return false;
+  }
+
+  int start = max(0, newest_end - BTHOME_MET_HISTORY_PAGE_SIZE);
+  int count = newest_end - start;
+  int written = snprintf(dest, len, "%u,%u,%d", measurement_id, page, count);
+  if (written <= 0 || (size_t) written >= len) {
+    return false;
+  }
+
+  for (int i = start; i < newest_end; i++) {
+    int part = snprintf(dest + written,
+                        len - (size_t) written,
+                        precision == 0 ? ",%.0f" : ",%.1f",
+                        values[i]);
+    if (part <= 0 || (size_t) (written + part) >= len) {
+      return false;
+    }
+    written += part;
+  }
+
+  return true;
+}
+
 bool SensorMesh::publishBTHomeMetReport(const char* slot_name) {
   if (!_met_report.hasChannel()) {
     return false;
@@ -642,6 +707,30 @@ bool SensorMesh::handleBTHomeMetCommand(char* command, char* reply) {
       mesh::Utils::toHex(hash_hex, _met_report.channel.hash, sizeof(_met_report.channel.hash));
       snprintf(reply, 160, "ok hash=%s", hash_hex);
     }
+  } else if (memcmp(command, "bthome met history ", 19) == 0) {
+    char* end = nullptr;
+    long measurement_id = strtol(&command[19], &end, 10);
+    long page = 0;
+    if (end == &command[19] || measurement_id < 1 || measurement_id > 5) {
+      strcpy(reply, "Err - bad measurement_id");
+    } else {
+      while (*end == ' ') {
+        end++;
+      }
+      if (*end != 0) {
+        char* page_end = nullptr;
+        page = strtol(end, &page_end, 10);
+        if (page_end == end || *page_end != 0 || page < 0 || page > 255) {
+          strcpy(reply, "Err - bad page");
+          return true;
+        }
+      }
+
+      recordBTHomeMetHistory();
+      if (!formatBTHomeMetHistory(reply, 160, (uint8_t) measurement_id, (uint8_t) page)) {
+        strcpy(reply, "Err - no met history");
+      }
+    }
   } else if (memcmp(command, "bthome met schedule ", 20) == 0) {
     uint8_t mask = parseBTHomeMetPublishMask(&command[20]);
     if (mask == 0xFF) {
@@ -654,7 +743,7 @@ bool SensorMesh::handleBTHomeMetCommand(char* command, char* reply) {
       formatBTHomeMetStatus(reply, 160);
     }
   } else {
-    strcpy(reply, "bthome met status|set <index>|today|publish|clear|channel <psk|off>|schedule <off|morning|midday|evening|all>");
+    strcpy(reply, "bthome met status|set <index>|today|history <measurement_id> [page]|publish|clear|channel <psk|off>|schedule <off|morning|midday|evening|all>");
   }
   return true;
 }

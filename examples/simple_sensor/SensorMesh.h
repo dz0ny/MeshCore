@@ -153,8 +153,8 @@ private:
   };
 
   struct BTHomeMetReportState {
-    static const uint16_t HISTORY_SLOTS = 12 * 24;
-    static const uint32_t HISTORY_INTERVAL_SECS = 5 * 60;
+    static const uint16_t HISTORY_SLOTS = 48;
+    static const uint32_t HISTORY_INTERVAL_SECS = 60 * 60;
 
     uint8_t target_configured;
     uint8_t publish_mask;
@@ -252,6 +252,7 @@ private:
   void maybePublishBTHomeMetReport();
   bool publishBTHomeMetReport(const char* slot_name);
   bool buildBTHomeMetReport(char* dest, size_t len, const char* slot_name) const;
+  bool formatBTHomeMetHistory(char* dest, size_t len, uint8_t measurement_id, uint8_t page) const;
   size_t formatBTHomeMetStatus(char* dest, size_t len) const;
 
   void sendAlert(const ClientInfo* c, Trigger* t);

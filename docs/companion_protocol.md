@@ -349,6 +349,47 @@ Byte 0: 0x14
 
 ---
 
+### 8. Send Binary Request
+
+**Purpose**: Send an arbitrary binary request payload to a remote contact and receive the raw response. This is the generic companion-protocol path for remote sensor requests that do not have a dedicated companion command.
+
+**Command Format**:
+```
+Byte 0: 0x32
+Bytes 1-32: Recipient Public Key (32 bytes)
+Bytes 33+: Request Payload (variable length)
+```
+
+**Response**:
+- Immediate: `PACKET_MSG_SENT` (0x06) with a request tag and timeout estimate
+- Async: `PACKET_BINARY_RESPONSE` (0x8C) when the remote node replies
+
+**Notes**:
+- The remote node must already be reachable as a known contact.
+- This is not an anonymous mesh request. The remote node still applies its normal authentication and authorization rules.
+- The app should match `PACKET_BINARY_RESPONSE` to the earlier `PACKET_MSG_SENT` by tag.
+
+**Example**: Request remote BTHome met history page 0 for temperature
+```text
+bthome met history 1 0
+```
+
+Send the UTF-8 bytes of that CLI command as the request payload after the 32-byte recipient public key. The remote `simple_sensor` node will answer with raw ASCII CSV through `PACKET_BINARY_RESPONSE`.
+
+For the met-history command, the ASCII response body format is:
+```text
+<measurement_id>,<page>,<count>,<v1>,...,<vn>
+```
+
+Measurement IDs for `bthome met history` are:
+- `1`: temperature
+- `2`: relative humidity
+- `3`: wind speed
+- `4`: gust
+- `5`: rain
+
+---
+
 ## Channel Management
 
 ### Channel Types
@@ -551,6 +592,7 @@ Use the `SEND_CHANNEL_MESSAGE` command (see [Commands](#commands)).
 | 0x82  | PACKET_ACK                 | Acknowledgment                |
 | 0x83  | PACKET_MESSAGES_WAITING    | Messages waiting notification |
 | 0x88  | PACKET_LOG_DATA            | RF log data (can be ignored)  |
+| 0x8C  | PACKET_BINARY_RESPONSE     | Raw binary request response   |
 
 ### Parsing Responses
 
@@ -714,6 +756,29 @@ Bytes 6-9: Suggested Timeout (32-bit little-endian, milliseconds)
 ```
 Byte 0: 0x82
 Bytes 1-6: ACK Code (6 bytes, hex)
+```
+
+**PACKET_BINARY_RESPONSE** (0x8C):
+```
+Byte 0: 0x8C
+Byte 1: Reserved
+Bytes 2-5: Request Tag (32-bit little-endian)
+Bytes 6+: Raw Response Payload
+```
+
+**Parsing Pseudocode**:
+```python
+def parse_binary_response(data):
+    if len(data) < 6:
+        return None
+
+    tag = int.from_bytes(data[2:6], 'little')
+    payload = data[6:]
+    return {
+        'tag': tag,
+        'payload': payload,
+        'payload_text': payload.decode('utf-8', errors='replace')
+    }
 ```
 
 ### Error Codes

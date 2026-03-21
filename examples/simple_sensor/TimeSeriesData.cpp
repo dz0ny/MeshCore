@@ -3,21 +3,38 @@
 void TimeSeriesData::clear() {
   memset(data, 0, sizeof(float) * num_slots);
   last_timestamp = 0;
+  bucket_start_timestamp = 0;
   next = 0;
   num_filled = 0;
+  pending_total = 0.0f;
+  pending_count = 0;
 }
 
 void TimeSeriesData::recordData(mesh::RTCClock* clock, float value) {
   uint32_t now = clock->getCurrentTime();
-  if (now >= last_timestamp + interval_secs) {
-    last_timestamp = now;
-
-    data[next] = value;   // append to cycle table
-    next = (next + 1) % num_slots;
-    if (num_filled < num_slots) {
-      num_filled++;
-    }
+  if (pending_count == 0) {
+    bucket_start_timestamp = now;
+    pending_total = value;
+    pending_count = 1;
+    return;
   }
+
+  if (now < bucket_start_timestamp + interval_secs) {
+    pending_total += value;
+    pending_count++;
+    return;
+  }
+
+  last_timestamp = bucket_start_timestamp + interval_secs;
+  data[next] = pending_total / pending_count;
+  next = (next + 1) % num_slots;
+  if (num_filled < num_slots) {
+    num_filled++;
+  }
+
+  bucket_start_timestamp = now;
+  pending_total = value;
+  pending_count = 1;
 }
 
 void TimeSeriesData::calcMinMaxAvg(mesh::RTCClock* clock, uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg* dest, uint8_t channel, uint8_t lpp_type) const {
@@ -74,4 +91,15 @@ bool TimeSeriesData::calcFirstLast(mesh::RTCClock* clock, uint32_t start_secs_ag
   }
 
   return found;
+}
+
+int TimeSeriesData::copyChronological(float* dest, int max_values) const {
+  int count = min(num_filled, max_values);
+  int start = (next + num_slots - count) % num_slots;
+
+  for (int i = 0; i < count; i++) {
+    dest[i] = data[(start + i) % num_slots];
+  }
+
+  return count;
 }
