@@ -1,5 +1,6 @@
 #include "BTHomeScanner.h"
 
+#include <helpers/sensors/LPPDataHelpers.h>
 #include <helpers/sensors/MeshLPPTypes.h>
 #include <ctype.h>
 #include <math.h>
@@ -737,7 +738,7 @@ static bool appendBTHomeField(MeshCayenneLPP& telemetry,
       return telemetry.addCustomScaledS32(channel, LPP_SIGNED_POWER, LPP_SIGNED_POWER_MULT, slot->value) != 0;
     case 0x0C:
     case 0x4A:
-      return telemetry.addVoltage(channel, slot->value) != 0;
+      return appendAnalogInputField(telemetry, channel, slot->value);
     case 0x0D:
       return telemetry.addCustomScaledU16(channel, LPP_PM25, LPP_PM25_MULT, slot->value) != 0;
     case 0x0E:
@@ -870,7 +871,7 @@ static uint8_t getBTHomeFieldType(const BTHomeScanner::MeasurementSlot* slot) {
       return LPP_SIGNED_POWER;
     case 0x0C:
     case 0x4A:
-      return LPP_VOLTAGE;
+      return LPP_ANALOG_INPUT;
     case 0x0D:
       return LPP_PM25;
     case 0x0E:
@@ -933,6 +934,32 @@ static bool channelHasType(const uint8_t types[], uint8_t count, uint8_t type) {
     }
   }
   return false;
+}
+
+static uint8_t seedExistingChannelTypes(MeshCayenneLPP& telemetry,
+                                        uint8_t base_channel,
+                                        uint8_t channel_types[][BTHomeScanner::TELEMETRY_FIELD_COUNT],
+                                        uint8_t channel_type_counts[]) {
+  uint8_t used_channels = 0;
+  LPPReader reader(telemetry.getBuffer(), telemetry.getSize());
+  uint8_t channel = 0;
+  uint8_t type = 0;
+  while (reader.readHeader(channel, type)) {
+    if (channel >= base_channel) {
+      const uint16_t channel_index = (uint16_t) channel - base_channel;
+      if (channel_index < BTHomeScanner::TELEMETRY_FIELD_COUNT) {
+        if (!channelHasType(channel_types[channel_index], channel_type_counts[channel_index], type) &&
+            channel_type_counts[channel_index] < BTHomeScanner::TELEMETRY_FIELD_COUNT) {
+          channel_types[channel_index][channel_type_counts[channel_index]++] = type;
+        }
+        if (used_channels < (channel_index + 1U)) {
+          used_channels = (uint8_t) (channel_index + 1U);
+        }
+      }
+    }
+    reader.skipData(type);
+  }
+  return used_channels;
 }
 
 struct MeasurementRef {
@@ -1338,7 +1365,7 @@ uint8_t BTHomeScanner::appendTelemetry(MeshCayenneLPP& telemetry,
     memset(channel_types, 0, sizeof(channel_types));
     memset(channel_type_counts, 0, sizeof(channel_type_counts));
 
-    uint8_t used_channels = 0;
+    uint8_t used_channels = seedExistingChannelTypes(telemetry, next_channel, channel_types, channel_type_counts);
     const bool device_has_rain_override =
         has_override_rain && override_rain_mac != nullptr && macEquals(device->mac, override_rain_mac);
     for (uint8_t i = 0; i < ordered_count; i++) {
