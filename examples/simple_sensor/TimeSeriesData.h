@@ -32,6 +32,7 @@ public:
 
   void clear();
   void recordData(mesh::RTCClock* clock, float value);
+  void recordLatest(mesh::RTCClock* clock, float value);
   void calcMinMaxAvg(mesh::RTCClock* clock, uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg* dest, uint8_t channel, uint8_t lpp_type) const;
   bool calcFirstLast(mesh::RTCClock* clock, uint32_t start_secs_ago, uint32_t end_secs_ago, float& first, float& last) const;
   int copyChronological(float* dest, int max_values) const;

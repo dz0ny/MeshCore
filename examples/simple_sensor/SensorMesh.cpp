@@ -288,6 +288,26 @@ static void formatBTHomeMetPublishMask(uint8_t mask, char* dest, size_t len) {
   dest[len - 1] = 0;
 }
 
+static bool calcRainDeltaFromHistory(const TimeSeriesData& history,
+                                     mesh::RTCClock* clock,
+                                     uint32_t start_secs_ago,
+                                     float current_rain,
+                                     float& delta) {
+  if (start_secs_ago == 0) {
+    return false;
+  }
+
+  float first = 0.0f;
+  float last = 0.0f;
+  if (!history.calcFirstLast(clock, start_secs_ago, 0, first, last) ||
+      current_rain + 0.01f < first) {
+    return false;
+  }
+
+  delta = max(0.0f, current_rain - first);
+  return true;
+}
+
 static int decodeBase64Secret(const char* src, uint8_t* dest, size_t dest_len) {
   uint32_t buffer = 0;
   int bits = 0;
@@ -339,16 +359,17 @@ void SensorMesh::buildTelemetry(uint8_t requester_permissions) {
   bool has_rain_override = false;
   float rain_override = 0.0f;
   if (_met_report.hasTarget()) {
+    float current_rain = 0.0f;
     uint32_t now = getRTCClock()->getCurrentTime();
     uint32_t seconds_of_day = now % 86400UL;
-    if (seconds_of_day > 0) {
-      float rain_first = 0.0f;
-      float rain_last = 0.0f;
-      if (_met_report.rain_history.calcFirstLast(getRTCClock(), seconds_of_day, 0, rain_first, rain_last) &&
-          rain_last + 0.01f >= rain_first) {
-        has_rain_override = true;
-        rain_override = max(0.0f, rain_last - rain_first);
-      }
+    uint32_t rain_window_secs = min(seconds_of_day, 60UL * 60UL);
+    if (rain_window_secs > 0 &&
+        _bthome.getRainMeasurementByMac(
+            _met_report.target_mac,
+            current_rain,
+            BTHomeScanner::DEFAULT_FRESHNESS_MS) &&
+        calcRainDeltaFromHistory(_met_report.rain_history, getRTCClock(), rain_window_secs, current_rain, rain_override)) {
+      has_rain_override = true;
     }
   }
 
@@ -447,7 +468,7 @@ void SensorMesh::recordBTHomeMetHistory() {
           _met_report.target_mac,
           rain,
           BTHomeScanner::DEFAULT_FRESHNESS_MS)) {
-    _met_report.rain_history.recordData(getRTCClock(), rain);
+    _met_report.rain_history.recordLatest(getRTCClock(), rain);
   }
 }
 
@@ -486,15 +507,32 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
     return false;
   }
 
-  char rain_sentence[16];
+  float current_rain = 0.0f;
+  bool has_current_rain = _bthome.getRainMeasurementByMac(
+      _met_report.target_mac,
+      current_rain,
+      BTHomeScanner::DEFAULT_FRESHNESS_MS);
+  float rain_today = 0.0f;
+  float rain_last_hour = 0.0f;
+  bool has_rain_today =
+      has_current_rain &&
+      calcRainDeltaFromHistory(_met_report.rain_history, getRTCClock(), seconds_of_day, current_rain, rain_today);
+  bool has_rain_last_hour =
+      has_current_rain &&
+      calcRainDeltaFromHistory(_met_report.rain_history,
+                               getRTCClock(),
+                               min(seconds_of_day, 60UL * 60UL),
+                               current_rain,
+                               rain_last_hour);
+
+  char rain_sentence[40];
   rain_sentence[0] = 0;
-  if (seconds_of_day > 0) {
-    float rain_first = 0.0f;
-    float rain_last = 0.0f;
-    if (_met_report.rain_history.calcFirstLast(getRTCClock(), seconds_of_day, 0, rain_first, rain_last) &&
-        rain_last + 0.01f >= rain_first) {
-      snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA7%.1fmm", max(0.0f, rain_last - rain_first));
-    }
+  if (has_rain_today && has_rain_last_hour) {
+    snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA71h %.1fmm day %.1fmm", rain_last_hour, rain_today);
+  } else if (has_rain_today) {
+    snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA7day %.1fmm", rain_today);
+  } else if (has_rain_last_hour) {
+    snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA71h %.1fmm", rain_last_hour);
   }
 
   int written = snprintf(dest,
@@ -543,8 +581,8 @@ bool SensorMesh::formatBTHomeMetHistory(char* dest, size_t len, uint8_t measurem
       return false;
   }
 
-  float values[BTHomeMetReportState::HISTORY_SLOTS];
-  int total = history->copyChronological(values, BTHomeMetReportState::HISTORY_SLOTS);
+  float values[BTHomeMetReportState::MAX_HISTORY_SLOTS];
+  int total = history->copyChronological(values, BTHomeMetReportState::MAX_HISTORY_SLOTS);
   if (total <= 0) {
     return false;
   }
@@ -776,7 +814,7 @@ uint8_t SensorMesh::handleRequest(uint8_t perms, uint32_t sender_timestamp, uint
   if (req_type == REQ_TYPE_GET_TELEMETRY_DATA) {  // allow all
     uint8_t perm_mask = ~(payload[0]);    // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
 
-    buildTelemetry(0xFF & perm_mask);  // allow all telemetry permissions for admin or guest
+    buildTelemetry(0xFF & perm_mask);
     // TODO: let requester know permissions they have:  telemetry.addPresence(TELEM_CHANNEL_SELF, perms);
 
     uint8_t tlen = telemetry.getSize();
@@ -941,7 +979,7 @@ uint8_t SensorMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* 
       perms = PERM_ACL_ADMIN;
       init_perms = PERM_RECV_ALERTS_HI | PERM_RECV_ALERTS_LO;
     } else if (strcmp((char *)data, _prefs.guest_password) == 0) {  // check guest password
-      perms = PERM_ACL_READ_ONLY;  // sensor guests get read-only access (telemetry + history)
+      perms = PERM_ACL_GUEST;
     } else {
     #if MESH_DEBUG
       MESH_DEBUG_PRINTLN("Invalid password: %s", data);
@@ -962,7 +1000,7 @@ uint8_t SensorMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* 
     client->permissions |= perms;
     memcpy(client->shared_secret, secret, PUB_KEY_SIZE);
 
-    if (perms == PERM_ACL_ADMIN) {   // keep number of FS writes to a minimum (only persist admin contacts)
+    if (perms != PERM_ACL_GUEST) {   // keep number of FS writes to a minimum
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
     }
   }

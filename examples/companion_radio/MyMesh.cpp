@@ -1574,7 +1574,17 @@ void MyMesh::handleCmdFrame(size_t len) {
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
       uint32_t tag, est_timeout;
-      int result = sendRequest(*recipient, REQ_TYPE_GET_TELEMETRY_DATA, tag, est_timeout);
+      int result;
+      if (recipient->type == ADV_TYPE_SENSOR) {
+        // Sensors support anonymous telemetry requests (no login required)
+        uint8_t req_data[9];
+        req_data[0] = REQ_TYPE_GET_TELEMETRY_DATA;
+        memset(&req_data[1], 0, 4);  // reserved
+        getRNG()->random(&req_data[5], 4);
+        result = sendAnonReq(*recipient, req_data, sizeof(req_data), tag, est_timeout);
+      } else {
+        result = sendRequest(*recipient, REQ_TYPE_GET_TELEMETRY_DATA, tag, est_timeout);
+      }
       if (result == MSG_SEND_FAILED) {
         writeErrFrame(ERR_CODE_TABLE_FULL);
       } else {

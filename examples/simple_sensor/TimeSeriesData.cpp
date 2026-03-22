@@ -37,6 +37,33 @@ void TimeSeriesData::recordData(mesh::RTCClock* clock, float value) {
   pending_count = 1;
 }
 
+void TimeSeriesData::recordLatest(mesh::RTCClock* clock, float value) {
+  uint32_t now = clock->getCurrentTime();
+  if (pending_count == 0) {
+    bucket_start_timestamp = now;
+    pending_total = value;
+    pending_count = 1;
+    return;
+  }
+
+  if (now < bucket_start_timestamp + interval_secs) {
+    pending_total = value;
+    pending_count = 1;
+    return;
+  }
+
+  last_timestamp = bucket_start_timestamp + interval_secs;
+  data[next] = pending_total;
+  next = (next + 1) % num_slots;
+  if (num_filled < num_slots) {
+    num_filled++;
+  }
+
+  bucket_start_timestamp = now;
+  pending_total = value;
+  pending_count = 1;
+}
+
 void TimeSeriesData::calcMinMaxAvg(mesh::RTCClock* clock, uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg* dest, uint8_t channel, uint8_t lpp_type) const {
   int i = next, n = num_filled;
   uint32_t ago = clock->getCurrentTime() - last_timestamp;

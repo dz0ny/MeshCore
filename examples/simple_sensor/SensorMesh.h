@@ -155,6 +155,10 @@ private:
   struct BTHomeMetReportState {
     static const uint16_t HISTORY_SLOTS = 48;
     static const uint32_t HISTORY_INTERVAL_SECS = 60 * 60;
+    static const uint16_t RAIN_HISTORY_SLOTS = 96;
+    static const uint32_t RAIN_HISTORY_INTERVAL_SECS = 15 * 60;
+    static const uint16_t MAX_HISTORY_SLOTS =
+        (RAIN_HISTORY_SLOTS > HISTORY_SLOTS) ? RAIN_HISTORY_SLOTS : HISTORY_SLOTS;
 
     uint8_t target_configured;
     uint8_t publish_mask;
@@ -168,7 +172,7 @@ private:
     float humidity_samples[HISTORY_SLOTS];
     float wind_speed_samples[HISTORY_SLOTS];
     float gust_samples[HISTORY_SLOTS];
-    float rain_samples[HISTORY_SLOTS];
+    float rain_samples[RAIN_HISTORY_SLOTS];
     TimeSeriesData temperature_history;
     TimeSeriesData humidity_history;
     TimeSeriesData wind_speed_history;
@@ -186,7 +190,7 @@ private:
           humidity_history(humidity_samples, HISTORY_SLOTS, HISTORY_INTERVAL_SECS),
           wind_speed_history(wind_speed_samples, HISTORY_SLOTS, HISTORY_INTERVAL_SECS),
           gust_history(gust_samples, HISTORY_SLOTS, HISTORY_INTERVAL_SECS),
-          rain_history(rain_samples, HISTORY_SLOTS, HISTORY_INTERVAL_SECS) {
+          rain_history(rain_samples, RAIN_HISTORY_SLOTS, RAIN_HISTORY_INTERVAL_SECS) {
       memset(target_mac, 0, sizeof(target_mac));
       memset(&channel, 0, sizeof(channel));
       clearHistory();
