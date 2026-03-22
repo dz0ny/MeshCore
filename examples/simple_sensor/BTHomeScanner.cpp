@@ -681,8 +681,10 @@ static uint8_t getCountFieldType(const BTHomeScanner::MeasurementSlot* slot) {
 }
 
 static bool appendBTHomeField(MeshCayenneLPP& telemetry,
-                               uint8_t channel,
-                               const BTHomeScanner::MeasurementSlot* slot) {
+                              uint8_t channel,
+                              const BTHomeScanner::MeasurementSlot* slot,
+                              bool override_rain,
+                              float override_rain_value) {
   if (slot == nullptr) {
     return false;
   }
@@ -785,7 +787,7 @@ static bool appendBTHomeField(MeshCayenneLPP& telemetry,
     case 0x56:
       return telemetry.addCustomScaledU16(channel, LPP_CONDUCTIVITY, LPP_CONDUCTIVITY_MULT, slot->value) != 0;
     case 0x5F:
-      return telemetry.addRain(channel, slot->value) != 0;
+      return telemetry.addRain(channel, override_rain ? override_rain_value : slot->value) != 0;
     case 0x61:
       return telemetry.addCustomScaledU16(channel, LPP_RPM, LPP_RPM_MULT, slot->value) != 0;
     case 0x62:
@@ -1303,7 +1305,12 @@ static const BTHomeScanner::DeviceCache* findDeviceByIndex(
 }  // namespace
 #endif
 
-uint8_t BTHomeScanner::appendTelemetry(MeshCayenneLPP& telemetry, uint8_t base_channel, unsigned long freshness_ms) const {
+uint8_t BTHomeScanner::appendTelemetry(MeshCayenneLPP& telemetry,
+                                       uint8_t base_channel,
+                                       unsigned long freshness_ms,
+                                       const uint8_t override_rain_mac[6],
+                                       bool has_override_rain,
+                                       float override_rain_value) const {
   uint8_t emitted = 0;
 #if defined(ESP32_PLATFORM)
   uint8_t next_channel = base_channel;
@@ -1332,6 +1339,8 @@ uint8_t BTHomeScanner::appendTelemetry(MeshCayenneLPP& telemetry, uint8_t base_c
     memset(channel_type_counts, 0, sizeof(channel_type_counts));
 
     uint8_t used_channels = 0;
+    const bool device_has_rain_override =
+        has_override_rain && override_rain_mac != nullptr && macEquals(device->mac, override_rain_mac);
     for (uint8_t i = 0; i < ordered_count; i++) {
       const MeasurementSlot* slot = ordered[i].slot;
       const uint8_t field_type = getBTHomeFieldType(slot);
@@ -1344,7 +1353,11 @@ uint8_t BTHomeScanner::appendTelemetry(MeshCayenneLPP& telemetry, uint8_t base_c
         if (channelHasType(channel_types[channel_index], channel_type_counts[channel_index], field_type)) {
           continue;
         }
-        if (!appendBTHomeField(telemetry, next_channel + channel_index, slot)) {
+        if (!appendBTHomeField(telemetry,
+                               next_channel + channel_index,
+                               slot,
+                               device_has_rain_override && slot->object_id == 0x5F,
+                               override_rain_value)) {
           return emitted;
         }
         channel_types[channel_index][channel_type_counts[channel_index]++] = field_type;
@@ -1357,7 +1370,11 @@ uint8_t BTHomeScanner::appendTelemetry(MeshCayenneLPP& telemetry, uint8_t base_c
         if (used_channels >= remaining_channels) {
           return emitted;
         }
-        if (!appendBTHomeField(telemetry, next_channel + used_channels, slot)) {
+        if (!appendBTHomeField(telemetry,
+                               next_channel + used_channels,
+                               slot,
+                               device_has_rain_override && slot->object_id == 0x5F,
+                               override_rain_value)) {
           return emitted;
         }
         channel_types[used_channels][channel_type_counts[used_channels]++] = field_type;

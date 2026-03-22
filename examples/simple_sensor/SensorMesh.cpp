@@ -335,7 +335,29 @@ void SensorMesh::buildTelemetry(uint8_t requester_permissions) {
   telemetry.reset();
   telemetry.addVoltage(TELEM_CHANNEL_SELF, (float) board.getBattMilliVolts() / 1000.0f);
   sensors.querySensors(requester_permissions, telemetry);
-  _bthome.appendTelemetry(telemetry, getNextTelemetryChannel(), BTHomeScanner::DEFAULT_FRESHNESS_MS);
+
+  bool has_rain_override = false;
+  float rain_override = 0.0f;
+  if (_met_report.hasTarget()) {
+    uint32_t now = getRTCClock()->getCurrentTime();
+    uint32_t seconds_of_day = now % 86400UL;
+    if (seconds_of_day > 0) {
+      float rain_first = 0.0f;
+      float rain_last = 0.0f;
+      if (_met_report.rain_history.calcFirstLast(getRTCClock(), seconds_of_day, 0, rain_first, rain_last) &&
+          rain_last + 0.01f >= rain_first) {
+        has_rain_override = true;
+        rain_override = max(0.0f, rain_last - rain_first);
+      }
+    }
+  }
+
+  _bthome.appendTelemetry(telemetry,
+                          getNextTelemetryChannel(),
+                          BTHomeScanner::DEFAULT_FRESHNESS_MS,
+                          has_rain_override ? _met_report.target_mac : nullptr,
+                          has_rain_override,
+                          rain_override);
 }
 
 uint8_t SensorMesh::getNextTelemetryChannel() {

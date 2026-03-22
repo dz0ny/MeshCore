@@ -50,7 +50,12 @@ public:
 
   bool isKnownEncrypted(const uint8_t mac[6]) const;
 
-  uint8_t appendTelemetry(MeshCayenneLPP& telemetry, uint8_t base_channel, unsigned long freshness_ms) const;
+  uint8_t appendTelemetry(MeshCayenneLPP& telemetry,
+                          uint8_t base_channel,
+                          unsigned long freshness_ms,
+                          const uint8_t override_rain_mac[6] = nullptr,
+                          bool has_override_rain = false,
+                          float override_rain_value = 0.0f) const;
   size_t formatStatus(char* dest, size_t len, unsigned long freshness_ms) const;
   size_t formatDeviceList(char* dest, size_t len, unsigned long freshness_ms) const;
   size_t formatDeviceFields(char* dest, size_t len, uint8_t device_index, unsigned long freshness_ms) const;
