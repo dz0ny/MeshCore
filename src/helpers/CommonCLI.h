@@ -18,6 +18,10 @@
 #define LOOP_DETECT_MODERATE  2
 #define LOOP_DETECT_STRICT    3
 
+#define TELEM_MODE_DENY            0
+#define TELEM_MODE_ALLOW_FLAGS     1     // use contact.flags
+#define TELEM_MODE_ALLOW_ALL       2
+
 struct NodePrefs { // persisted to file
   float airtime_factor;
   char node_name[32];
@@ -60,6 +64,10 @@ struct NodePrefs { // persisted to file
   uint8_t rx_boosted_gain; // power settings
   uint8_t path_hash_mode;   // which path mode to use when sending
   uint8_t loop_detect;
+  // Telemetry access control (same as companion radio)
+  uint8_t telemetry_mode_base;  // TELEM_MODE_DENY/ALLOW_FLAGS/ALLOW_ALL
+  uint8_t telemetry_mode_loc;
+  uint8_t telemetry_mode_env;
 };
 
 class CommonCLICallbacks {

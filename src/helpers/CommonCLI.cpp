@@ -88,7 +88,10 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read((uint8_t *)&_prefs->adc_multiplier, sizeof(_prefs->adc_multiplier));                 // 166
     file.read((uint8_t *)_prefs->owner_info, sizeof(_prefs->owner_info));                          // 170
     file.read((uint8_t *)&_prefs->rx_boosted_gain, sizeof(_prefs->rx_boosted_gain));              // 290
-    // next: 291
+    file.read((uint8_t *)&_prefs->telemetry_mode_base, sizeof(_prefs->telemetry_mode_base));     // 291
+    file.read((uint8_t *)&_prefs->telemetry_mode_loc, sizeof(_prefs->telemetry_mode_loc));       // 292
+    file.read((uint8_t *)&_prefs->telemetry_mode_env, sizeof(_prefs->telemetry_mode_env));       // 293
+    // next: 294
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -112,6 +115,9 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     _prefs->bridge_channel = constrain(_prefs->bridge_channel, 0, 14);
 
     _prefs->powersaving_enabled = constrain(_prefs->powersaving_enabled, 0, 1);
+    _prefs->telemetry_mode_base = constrain(_prefs->telemetry_mode_base, 0, 2);
+    _prefs->telemetry_mode_loc = constrain(_prefs->telemetry_mode_loc, 0, 2);
+    _prefs->telemetry_mode_env = constrain(_prefs->telemetry_mode_env, 0, 2);
 
     _prefs->gps_enabled = constrain(_prefs->gps_enabled, 0, 1);
     _prefs->advert_loc_policy = constrain(_prefs->advert_loc_policy, 0, 2);
@@ -179,7 +185,10 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *)&_prefs->adc_multiplier, sizeof(_prefs->adc_multiplier));                 // 166
     file.write((uint8_t *)_prefs->owner_info, sizeof(_prefs->owner_info));                          // 170
     file.write((uint8_t *)&_prefs->rx_boosted_gain, sizeof(_prefs->rx_boosted_gain));              // 290
-    // next: 291
+    file.write((uint8_t *)&_prefs->telemetry_mode_base, sizeof(_prefs->telemetry_mode_base));     // 291
+    file.write((uint8_t *)&_prefs->telemetry_mode_loc, sizeof(_prefs->telemetry_mode_loc));       // 292
+    file.write((uint8_t *)&_prefs->telemetry_mode_env, sizeof(_prefs->telemetry_mode_env));       // 293
+    // next: 294
 
     file.close();
   }
@@ -315,6 +324,9 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         sprintf(reply, "> %d", ((uint32_t) _prefs->advert_interval) * 2);
       } else if (memcmp(config, "guest.password", 14) == 0) {
         sprintf(reply, "> %s", _prefs->guest_password);
+      } else if (memcmp(config, "telemetry.mode", 14) == 0) {
+        sprintf(reply, "> base=%d loc=%d env=%d (0=deny,1=flags,2=all)",
+                _prefs->telemetry_mode_base, _prefs->telemetry_mode_loc, _prefs->telemetry_mode_env);
       } else if (sender_timestamp == 0 && memcmp(config, "prv.key", 7) == 0) {  // from serial command line only
         uint8_t prv_key[PRV_KEY_SIZE];
         int len = _callbacks->getSelfId().writeTo(prv_key, PRV_KEY_SIZE);
@@ -510,6 +522,15 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         }
       } else if (memcmp(config, "guest.password ", 15) == 0) {
         StrHelper::strncpy(_prefs->guest_password, &config[15], sizeof(_prefs->guest_password));
+        savePrefs();
+        strcpy(reply, "OK");
+      } else if (memcmp(config, "telemetry.mode ", 15) == 0) {
+        // format: "telemetry.mode <base> <loc> <env>" (0=deny, 1=flags, 2=all)
+        int b = 0, l = 0, e = 0;
+        sscanf(&config[15], "%d %d %d", &b, &l, &e);
+        _prefs->telemetry_mode_base = constrain(b, 0, 2);
+        _prefs->telemetry_mode_loc = constrain(l, 0, 2);
+        _prefs->telemetry_mode_env = constrain(e, 0, 2);
         savePrefs();
         strcpy(reply, "OK");
       } else if (memcmp(config, "prv.key ", 8) == 0) {

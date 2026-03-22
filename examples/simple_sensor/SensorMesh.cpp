@@ -362,7 +362,7 @@ void SensorMesh::buildTelemetry(uint8_t requester_permissions) {
     float current_rain = 0.0f;
     uint32_t now = getRTCClock()->getCurrentTime();
     uint32_t seconds_of_day = now % 86400UL;
-    uint32_t rain_window_secs = min(seconds_of_day, 60UL * 60UL);
+    uint32_t rain_window_secs = min(seconds_of_day, (uint32_t)(60 * 60));
     if (rain_window_secs > 0 &&
         _bthome.getRainMeasurementByMac(
             _met_report.target_mac,
@@ -521,7 +521,7 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
       has_current_rain &&
       calcRainDeltaFromHistory(_met_report.rain_history,
                                getRTCClock(),
-                               min(seconds_of_day, 60UL * 60UL),
+                               min(seconds_of_day, (uint32_t)(60 * 60)),
                                current_rain,
                                rain_last_hour);
 
@@ -811,11 +811,32 @@ bool SensorMesh::handleBTHomeMetCommand(char* command, char* reply) {
 uint8_t SensorMesh::handleRequest(uint8_t perms, uint32_t sender_timestamp, uint8_t req_type, uint8_t* payload, size_t payload_len) {
   memcpy(reply_data, &sender_timestamp, 4);   // reflect sender_timestamp back in response packet (kind of like a 'tag')
 
-  if (req_type == REQ_TYPE_GET_TELEMETRY_DATA) {  // allow all
-    uint8_t perm_mask = ~(payload[0]);    // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
+  if (req_type == REQ_TYPE_GET_TELEMETRY_DATA) {
+    uint8_t perm_mask = ~(payload[0]);    // first reserved byte (of 4), is now inverse mask to apply to permissions
 
-    buildTelemetry(0xFF & perm_mask);
-    // TODO: let requester know permissions they have:  telemetry.addPresence(TELEM_CHANNEL_SELF, perms);
+    // Apply telemetry access control (like repeater onContactRequest)
+    uint8_t permissions = 0;
+    if (_prefs.telemetry_mode_base == TELEM_MODE_ALLOW_ALL) {
+      permissions = TELEM_PERM_BASE;
+    }
+    if (_prefs.telemetry_mode_loc == TELEM_MODE_ALLOW_ALL) {
+      permissions |= TELEM_PERM_LOCATION;
+    }
+    if (_prefs.telemetry_mode_env == TELEM_MODE_ALLOW_ALL) {
+      permissions |= TELEM_PERM_ENVIRONMENT;
+    }
+
+    // Guests get only what telemetry modes allow; admins get full access
+    if ((perms & PERM_ACL_ROLE_MASK) >= PERM_ACL_ADMIN) {
+      permissions = 0xFF;  // admins bypass telemetry mode restrictions
+    }
+    perm_mask &= permissions;
+
+    if (!(perm_mask & TELEM_PERM_BASE)) {
+      return 0;  // base telemetry not allowed, don't respond
+    }
+
+    buildTelemetry(perm_mask);
 
     uint8_t tlen = telemetry.getSize();
     memcpy(&reply_data[4], telemetry.getBuffer(), tlen);
