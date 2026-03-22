@@ -1152,8 +1152,8 @@ void SensorMesh::onAnonDataRecv(mesh::Packet* packet, const uint8_t* secret, con
     uint8_t reply_len;
     if (data[4] == 0 || data[4] >= ' ') {   // is password, ie. a login request
       reply_len = handleLoginReq(sender, secret, timestamp, &data[4], packet->isRouteFlood());
-    //} else if (data[4] == ANON_REQ_TYPE_*) {   // future type codes
-      // TODO
+    } else if (data[4] == REQ_TYPE_GET_TELEMETRY_DATA && len >= 9) {  // anonymous telemetry request (guest access)
+      reply_len = handleRequest(PERM_ACL_GUEST, timestamp, data[4], &data[5], len - 5);
     } else {
       reply_len = 0;  // unknown request type
     }

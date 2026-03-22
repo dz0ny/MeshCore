@@ -681,6 +681,37 @@ static uint8_t getCountFieldType(const BTHomeScanner::MeasurementSlot* slot) {
   return LPP_ANALOG_INPUT;
 }
 
+static bool isOfficialClientSupportedType(uint8_t type) {
+  switch (type) {
+    case LPP_DIGITAL_INPUT:
+    case LPP_DIGITAL_OUTPUT:
+    case LPP_ANALOG_INPUT:
+    case LPP_ANALOG_OUTPUT:
+    case LPP_GENERIC_SENSOR:
+    case LPP_LUMINOSITY:
+    case LPP_PRESENCE:
+    case LPP_TEMPERATURE:
+    case LPP_RELATIVE_HUMIDITY:
+    case LPP_BAROMETRIC_PRESSURE:
+    case LPP_VOLTAGE:
+    case LPP_CURRENT:
+    case LPP_FREQUENCY:
+    case LPP_PERCENTAGE:
+    case LPP_ALTITUDE:
+    case LPP_CONCENTRATION:
+    case LPP_POWER:
+    case LPP_DISTANCE:
+    case LPP_ENERGY:
+    case LPP_DIRECTION:
+    case LPP_UNIXTIME:
+    case LPP_GPS:
+    case LPP_SWITCH:
+      return true;
+    default:
+      return false;
+  }
+}
+
 static bool appendBTHomeField(MeshCayenneLPP& telemetry,
                               uint8_t channel,
                               const BTHomeScanner::MeasurementSlot* slot,
@@ -1342,79 +1373,85 @@ uint8_t BTHomeScanner::appendTelemetry(MeshCayenneLPP& telemetry,
 #if defined(ESP32_PLATFORM)
   uint8_t next_channel = base_channel;
   const unsigned long measurement_retention_ms = getMeasurementRetentionMs(freshness_ms);
-  for (uint8_t target_index = 0; target_index < _target_count; target_index++) {
-    if (next_channel == 0) {
-      return emitted;
-    }
+  // The official client stops parsing when it encounters an unsupported MeshLPP type.
+  // Emit the standard types it understands first across all targets, then append richer custom types after.
+  for (uint8_t support_pass = 0; support_pass < 2; support_pass++) {
+    const bool emit_supported_types = support_pass == 0;
+    for (uint8_t target_index = 0; target_index < _target_count; target_index++) {
+      if (next_channel == 0) {
+        return emitted;
+      }
 
-    const DeviceCache* device = findDeviceByMac(_target_macs[target_index]);
-    if (device == nullptr || device->encrypted || !isFresh(device->last_seen, freshness_ms)) {
-      continue;
-    }
-
-    const uint16_t remaining_channels = (uint16_t) UINT8_MAX - next_channel + 1U;
-    if (remaining_channels == 0) {
-      return emitted;
-    }
-
-    MeasurementRef ordered[TELEMETRY_FIELD_COUNT];
-    const uint8_t ordered_count = collectOrderedMeasurements(*device, measurement_retention_ms, ordered, TELEMETRY_FIELD_COUNT);
-
-    uint8_t channel_types[TELEMETRY_FIELD_COUNT][TELEMETRY_FIELD_COUNT];
-    uint8_t channel_type_counts[TELEMETRY_FIELD_COUNT];
-    memset(channel_types, 0, sizeof(channel_types));
-    memset(channel_type_counts, 0, sizeof(channel_type_counts));
-
-    uint8_t used_channels = seedExistingChannelTypes(telemetry, next_channel, channel_types, channel_type_counts);
-    const bool device_has_rain_override =
-        has_override_rain && override_rain_mac != nullptr && macEquals(device->mac, override_rain_mac);
-    for (uint8_t i = 0; i < ordered_count; i++) {
-      const MeasurementSlot* slot = ordered[i].slot;
-      const uint8_t field_type = getBTHomeFieldType(slot);
-      if (slot == nullptr || field_type == 0) {
+      const DeviceCache* device = findDeviceByMac(_target_macs[target_index]);
+      if (device == nullptr || device->encrypted || !isFresh(device->last_seen, freshness_ms)) {
         continue;
       }
 
-      bool appended = false;
-      for (uint8_t channel_index = 0; channel_index < used_channels; channel_index++) {
-        if (channelHasType(channel_types[channel_index], channel_type_counts[channel_index], field_type)) {
+      const uint16_t remaining_channels = (uint16_t) UINT8_MAX - next_channel + 1U;
+      if (remaining_channels == 0) {
+        return emitted;
+      }
+
+      MeasurementRef ordered[TELEMETRY_FIELD_COUNT];
+      const uint8_t ordered_count = collectOrderedMeasurements(*device, measurement_retention_ms, ordered, TELEMETRY_FIELD_COUNT);
+
+      uint8_t channel_types[TELEMETRY_FIELD_COUNT][TELEMETRY_FIELD_COUNT];
+      uint8_t channel_type_counts[TELEMETRY_FIELD_COUNT];
+      memset(channel_types, 0, sizeof(channel_types));
+      memset(channel_type_counts, 0, sizeof(channel_type_counts));
+
+      uint8_t used_channels = seedExistingChannelTypes(telemetry, next_channel, channel_types, channel_type_counts);
+      const bool device_has_rain_override =
+          has_override_rain && override_rain_mac != nullptr && macEquals(device->mac, override_rain_mac);
+      for (uint8_t i = 0; i < ordered_count; i++) {
+        const MeasurementSlot* slot = ordered[i].slot;
+        const uint8_t field_type = getBTHomeFieldType(slot);
+        if (slot == nullptr || field_type == 0 ||
+            isOfficialClientSupportedType(field_type) != emit_supported_types) {
           continue;
         }
-        if (!appendBTHomeField(telemetry,
-                               next_channel + channel_index,
-                               slot,
-                               device_has_rain_override && slot->object_id == 0x5F,
-                               override_rain_value)) {
-          return emitted;
+
+        bool appended = false;
+        for (uint8_t channel_index = 0; channel_index < used_channels; channel_index++) {
+          if (channelHasType(channel_types[channel_index], channel_type_counts[channel_index], field_type)) {
+            continue;
+          }
+          if (!appendBTHomeField(telemetry,
+                                 next_channel + channel_index,
+                                 slot,
+                                 device_has_rain_override && slot->object_id == 0x5F,
+                                 override_rain_value)) {
+            return emitted;
+          }
+          channel_types[channel_index][channel_type_counts[channel_index]++] = field_type;
+          emitted++;
+          appended = true;
+          break;
         }
-        channel_types[channel_index][channel_type_counts[channel_index]++] = field_type;
-        emitted++;
-        appended = true;
-        break;
+
+        if (!appended) {
+          if (used_channels >= remaining_channels) {
+            return emitted;
+          }
+          if (!appendBTHomeField(telemetry,
+                                 next_channel + used_channels,
+                                 slot,
+                                 device_has_rain_override && slot->object_id == 0x5F,
+                                 override_rain_value)) {
+            return emitted;
+          }
+          channel_types[used_channels][channel_type_counts[used_channels]++] = field_type;
+          used_channels++;
+          emitted++;
+        }
       }
 
-      if (!appended) {
-        if (used_channels >= remaining_channels) {
-          return emitted;
-        }
-        if (!appendBTHomeField(telemetry,
-                               next_channel + used_channels,
-                               slot,
-                               device_has_rain_override && slot->object_id == 0x5F,
-                               override_rain_value)) {
-          return emitted;
-        }
-        channel_types[used_channels][channel_type_counts[used_channels]++] = field_type;
-        used_channels++;
-        emitted++;
+      const uint16_t advanced_channel = (uint16_t) next_channel + used_channels;
+      if (advanced_channel > UINT8_MAX) {
+        return emitted;
       }
+      next_channel = (uint8_t) advanced_channel;
     }
-
-    const uint16_t advanced_channel = (uint16_t) next_channel + used_channels;
-    if (advanced_channel > UINT8_MAX) {
-      return emitted;
-    }
-    next_channel = (uint8_t) advanced_channel;
   }
 #else
   (void) telemetry;
