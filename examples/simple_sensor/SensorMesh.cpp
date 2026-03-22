@@ -925,24 +925,31 @@ int SensorMesh::getAGCResetInterval() const {
 }
 
 uint8_t SensorMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* secret, uint32_t sender_timestamp, const uint8_t* data, bool is_flood) {
-  ClientInfo* client;
+  ClientInfo* client = NULL;
   if (data[0] == 0) {   // blank password, just check if sender is in ACL
     client = acl.getClient(sender.pub_key, PUB_KEY_SIZE);
     if (client == NULL) {
     #if MESH_DEBUG
       MESH_DEBUG_PRINTLN("Login, sender not in ACL");
     #endif
-      return 0;
     }
-  } else {
-    if (strcmp((char *) data, _prefs.password) != 0) {  // check for valid admin password
+  }
+  if (client == NULL) {
+    uint8_t perms;
+    uint8_t init_perms = 0;
+    if (strcmp((char *)data, _prefs.password) == 0) {  // check for valid admin password
+      perms = PERM_ACL_ADMIN;
+      init_perms = PERM_RECV_ALERTS_HI | PERM_RECV_ALERTS_LO;
+    } else if (strcmp((char *)data, _prefs.guest_password) == 0) {  // check guest password
+      perms = PERM_ACL_GUEST;
+    } else {
     #if MESH_DEBUG
-      MESH_DEBUG_PRINTLN("Invalid password: %s", &data[4]);
+      MESH_DEBUG_PRINTLN("Invalid password: %s", data);
     #endif
       return 0;
     }
 
-    client = acl.putClient(sender, PERM_RECV_ALERTS_HI | PERM_RECV_ALERTS_LO);  // add to contacts (if not already known)
+    client = acl.putClient(sender, init_perms);  // add to contacts (if not already known)
     if (sender_timestamp <= client->last_timestamp) {
       MESH_DEBUG_PRINTLN("Possible login replay attack!");
       return 0;  // FATAL: client table is full -OR- replay attack
@@ -951,10 +958,13 @@ uint8_t SensorMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* 
     MESH_DEBUG_PRINTLN("Login success!");
     client->last_timestamp = sender_timestamp;
     client->last_activity = getRTCClock()->getCurrentTime();
-    client->permissions |= PERM_ACL_ADMIN;
+    client->permissions &= ~PERM_ACL_ROLE_MASK;
+    client->permissions |= perms;
     memcpy(client->shared_secret, secret, PUB_KEY_SIZE);
 
-    dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
+    if (perms != PERM_ACL_GUEST) {   // keep number of FS writes to a minimum
+      dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
+    }
   }
 
   if (is_flood) {
