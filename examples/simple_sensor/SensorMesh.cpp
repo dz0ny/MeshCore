@@ -941,7 +941,7 @@ uint8_t SensorMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* 
       perms = PERM_ACL_ADMIN;
       init_perms = PERM_RECV_ALERTS_HI | PERM_RECV_ALERTS_LO;
     } else if (strcmp((char *)data, _prefs.guest_password) == 0) {  // check guest password
-      perms = PERM_ACL_GUEST;
+      perms = PERM_ACL_READ_ONLY;  // sensor guests get read-only access (telemetry + history)
     } else {
     #if MESH_DEBUG
       MESH_DEBUG_PRINTLN("Invalid password: %s", data);
@@ -962,7 +962,7 @@ uint8_t SensorMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* 
     client->permissions |= perms;
     memcpy(client->shared_secret, secret, PUB_KEY_SIZE);
 
-    if (perms != PERM_ACL_GUEST) {   // keep number of FS writes to a minimum
+    if (perms == PERM_ACL_ADMIN) {   // keep number of FS writes to a minimum (only persist admin contacts)
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
     }
   }
