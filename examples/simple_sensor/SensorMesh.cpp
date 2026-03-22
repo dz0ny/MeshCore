@@ -353,7 +353,7 @@ void SensorMesh::buildTelemetry(uint8_t requester_permissions) {
   }
 
   _bthome.appendTelemetry(telemetry,
-                          TELEM_CHANNEL_SELF,
+                          getNextTelemetryChannel(),
                           BTHomeScanner::DEFAULT_FRESHNESS_MS,
                           has_rain_override ? _met_report.target_mac : nullptr,
                           has_rain_override,
