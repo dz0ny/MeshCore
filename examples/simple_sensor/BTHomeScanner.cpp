@@ -1524,11 +1524,16 @@ size_t BTHomeScanner::formatDeviceList(char* dest, size_t len, unsigned long fre
       const bool is_met = getMetReportObservation(device, nullptr, 0, temperature, humidity, wind_speed, gust, freshness_ms);
       if (is_met) {
         ok = ok && appendToBuffer(dest, len, used, " met");
+        const MeasurementSlot* rain_slot = findMeasurementSlot(device, 0x5F, 0, measurement_retention_ms);
+        ok = ok && appendFieldSummary(dest, len, used, "rain", rain_slot);
       }
       MeasurementRef ordered[TELEMETRY_FIELD_COUNT];
       const uint8_t ordered_count = collectOrderedMeasurements(device, measurement_retention_ms, ordered, TELEMETRY_FIELD_COUNT);
       for (uint8_t i = 0; i < ordered_count; i++) {
         if (ordered[i].slot->object_id == 0x00) {
+          continue;
+        }
+        if (is_met && ordered[i].slot->object_id == 0x5F) {
           continue;
         }
         if (is_met && (ordered[i].slot->object_id == 0x01 || ordered[i].slot->object_id == 0x0C || ordered[i].slot->object_id == 0x4A)) {
