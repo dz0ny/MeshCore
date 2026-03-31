@@ -1506,17 +1506,14 @@ size_t BTHomeScanner::formatDeviceList(char* dest, size_t len, unsigned long fre
       continue;
     }
 
-    char mac[18];
-    formatMac(device.mac, mac, sizeof(mac));
     if (used > 0 && !appendToBuffer(dest, len, used, " | ")) {
       break;
     }
 
-    bool ok = appendToBuffer(dest, len, used, "%u:%s", index, mac);
+    bool ok = appendToBuffer(dest, len, used, "%u", index);
     if (isTargetMac(device.mac)) {
       ok = ok && appendToBuffer(dest, len, used, "*");
     }
-    ok = ok && appendToBuffer(dest, len, used, " age=%lus", measurementAgeMs(device.last_seen) / 1000);
     if (device.encrypted) {
       ok = ok && appendToBuffer(dest, len, used, " enc");
     } else {
@@ -1524,12 +1521,19 @@ size_t BTHomeScanner::formatDeviceList(char* dest, size_t len, unsigned long fre
       float humidity = 0.0f;
       float wind_speed = 0.0f;
       float gust = 0.0f;
-      if (getMetReportObservation(device, nullptr, 0, temperature, humidity, wind_speed, gust, freshness_ms)) {
+      const bool is_met = getMetReportObservation(device, nullptr, 0, temperature, humidity, wind_speed, gust, freshness_ms);
+      if (is_met) {
         ok = ok && appendToBuffer(dest, len, used, " met");
       }
       MeasurementRef ordered[TELEMETRY_FIELD_COUNT];
       const uint8_t ordered_count = collectOrderedMeasurements(device, measurement_retention_ms, ordered, TELEMETRY_FIELD_COUNT);
       for (uint8_t i = 0; i < ordered_count; i++) {
+        if (ordered[i].slot->object_id == 0x00) {
+          continue;
+        }
+        if (is_met && (ordered[i].slot->object_id == 0x01 || ordered[i].slot->object_id == 0x0C || ordered[i].slot->object_id == 0x4A)) {
+          continue;
+        }
         char label[16];
         formatSlotLabel(*ordered[i].slot, label, sizeof(label));
         ok = ok && appendFieldSummary(dest, len, used, label, ordered[i].slot, ordered[i].slot->object_id == 0x40);

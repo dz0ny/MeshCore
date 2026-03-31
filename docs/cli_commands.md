@@ -938,7 +938,7 @@ region save
 - Only unencrypted BTHome advertisements are accepted as a target.
 - BLE scanning starts automatically while `bthome` is enabled.
 - The scanner caches nearby BTHome devices in RAM only; selected targets and `enabled` are persisted. Targets are saved as resolved MAC addresses.
-- `bthome list` returns the found device list with indexes, MAC addresses, and any fresh decoded BTHome values that fit in the reply, including binary states and recent button or dimmer events.
+- `bthome list` returns the found device list with indexes and any fresh decoded BTHome values that fit in the reply, including binary states and recent button or dimmer events.
 - Devices marked `met` in `bthome list` expose temperature, relative humidity, wind speed, and gust, which makes them met-report-capable.
 - `bthome <index>` returns the discovered field types for one cached device using stable field indexes.
 - `bthome get <index> <field>` returns the current value for one discovered field on one cached device.
