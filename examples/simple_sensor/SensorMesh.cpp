@@ -528,11 +528,11 @@ bool SensorMesh::buildBTHomeMetReport(char* dest, size_t len, const char* slot_n
   char rain_sentence[40];
   rain_sentence[0] = 0;
   if (has_rain_today && has_rain_last_hour) {
-    snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA7" "1h %.1fmm day %.1fmm", rain_last_hour, rain_today);
+    snprintf(rain_sentence, sizeof(rain_sentence), " \xE2\x98\x82" "1h %.1fmm day %.1fmm", rain_last_hour, rain_today);
   } else if (has_rain_today) {
-    snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA7" "day %.1fmm", rain_today);
+    snprintf(rain_sentence, sizeof(rain_sentence), " \xE2\x98\x82" "day %.1fmm", rain_today);
   } else if (has_rain_last_hour) {
-    snprintf(rain_sentence, sizeof(rain_sentence), " \xF0\x9F\x8C\xA7" "1h %.1fmm", rain_last_hour);
+    snprintf(rain_sentence, sizeof(rain_sentence), " \xE2\x98\x82" "1h %.1fmm", rain_last_hour);
   }
 
   int written = snprintf(dest,
