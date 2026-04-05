@@ -399,16 +399,24 @@ void UITask::handleButtonTriplePress() {
   MESH_DEBUG_PRINTLN("UITask: triple press triggered");
   // Toggle buzzer quiet mode
   #ifdef PIN_BUZZER
-    if (buzzer.isQuiet()) {
-      buzzer.quiet(false);
+    setBuzzerQuiet(!buzzer.isQuiet());
+    the_mesh.savePrefs();
+  #endif
+}
+
+void UITask::setBuzzerQuiet(bool quiet) {
+  #ifdef PIN_BUZZER
+    if (buzzer.isQuiet() == quiet) {
+      return;
+    }
+    buzzer.quiet(quiet);
+    _node_prefs->buzzer_quiet = quiet;
+    if (!quiet) {
       notify(UIEventType::ack);
       sprintf(_alert, "Buzzer: ON");
     } else {
-      buzzer.quiet(true);
       sprintf(_alert, "Buzzer: OFF");
     }
-    _node_prefs->buzzer_quiet = buzzer.isQuiet();
-    the_mesh.savePrefs();
     _need_refresh = true;
   #endif
 }

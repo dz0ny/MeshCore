@@ -907,17 +907,23 @@ void UITask::toggleGPS() {
 }
 
 void UITask::toggleBuzzer() {
-    // Toggle buzzer quiet mode
   #ifdef PIN_BUZZER
-    if (buzzer.isQuiet()) {
-      buzzer.quiet(false);
-      notify(UIEventType::ack);
-    } else {
-      buzzer.quiet(true);
-    }
-    _node_prefs->buzzer_quiet = buzzer.isQuiet();
+    setBuzzerQuiet(!buzzer.isQuiet());
     the_mesh.savePrefs();
-    showAlert(buzzer.isQuiet() ? "Buzzer: OFF" : "Buzzer: ON", 800);
+  #endif
+}
+
+void UITask::setBuzzerQuiet(bool quiet) {
+  #ifdef PIN_BUZZER
+    if (buzzer.isQuiet() == quiet) {
+      return;
+    }
+    buzzer.quiet(quiet);
+    _node_prefs->buzzer_quiet = quiet;
+    if (!quiet) {
+      notify(UIEventType::ack);
+    }
+    showAlert(quiet ? "Buzzer: OFF" : "Buzzer: ON", 800);
     _next_refresh = 0;  // trigger refresh
   #endif
 }

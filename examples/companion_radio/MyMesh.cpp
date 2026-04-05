@@ -1942,6 +1942,12 @@ void MyMesh::handleCmdFrame(size_t len) {
       }
     }
 
+#ifdef PIN_BUZZER
+    char buzzer[2];
+    snprintf(buzzer, sizeof(buzzer), "%d", _prefs.buzzer_quiet ? 0 : 1);
+    appendCustomVar(dp, end, first, "buzzer", buzzer);
+#endif
+
 #if ENV_INCLUDE_GPS == 1
     if (gps_supported) {
       updateGpsStatusCache();
@@ -2015,13 +2021,32 @@ void MyMesh::handleCmdFrame(size_t len) {
       bool is_gps_var = strcmp(sp, "gps") == 0 ||
                         strcmp(sp, "gps_interval") == 0 ||
                         strcmp(sp, "fast_gps_channel") == 0;
+#ifdef PIN_BUZZER
+      bool buzzer_supported = true;
+#else
+      bool buzzer_supported = false;
+#endif
+      bool is_buzzer_var = strcmp(sp, "buzzer") == 0;
       if (is_gps_var && !gps_supported) {
+        writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+        return;
+      }
+      if (is_buzzer_var && !buzzer_supported) {
         writeErrFrame(ERR_CODE_ILLEGAL_ARG);
         return;
       }
 
       bool success = false;
-      if (strcmp(sp, "fast_gps_channel") == 0) {
+      if (strcmp(sp, "buzzer") == 0) {
+        if (np[0] == '0' || np[0] == '1') {
+          _prefs.buzzer_quiet = (np[0] == '1') ? 0 : 1;
+          if (_ui != NULL) {
+            _ui->setBuzzerQuiet(_prefs.buzzer_quiet != 0);
+          }
+          savePrefs();
+          success = true;
+        }
+      } else if (strcmp(sp, "fast_gps_channel") == 0) {
         int channel_idx = atoi(np);
         if (channel_idx == -1 || channel_idx == FAST_GPS_CHANNEL_DISABLED) {
           _prefs.fast_gps_channel_idx = FAST_GPS_CHANNEL_DISABLED;

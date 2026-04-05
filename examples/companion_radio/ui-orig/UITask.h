@@ -62,6 +62,7 @@ public:
 
   bool hasDisplay() const { return _display != NULL; }
   void clearMsgPreview();
+  void setBuzzerQuiet(bool quiet) override;
 
   // from AbstractUITask
   void msgRead(int msgcount) override;

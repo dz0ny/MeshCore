@@ -86,6 +86,7 @@ public:
 #endif
   }
 
+  void setBuzzerQuiet(bool quiet) override;
   void toggleBuzzer();
   bool getGPSState();
   void toggleGPS();
