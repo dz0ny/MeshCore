@@ -2,6 +2,8 @@
 
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
+#include <helpers/TxtDataHelpers.h>
+#include <math.h>
 
 #define CMD_APP_START                 1
 #define CMD_SEND_TXT_MSG              2
@@ -131,6 +133,10 @@
 #define ERR_CODE_ILLEGAL_ARG            6
 
 #define MAX_SIGN_DATA_LEN               (8 * 1024) // 8K
+#define FAST_GPS_CHANNEL_DISABLED       0xFF
+#define FAST_GPS_PAYLOAD_LEN            19
+#define FAST_GPS_MAGIC                  0x47
+#define FAST_GPS_MIN_MOVEMENT_METERS    10.0
 
 // Auto-add config bitmask
 // Bit 0: If set, overwrite oldest non-favourite contact when contacts file is full
@@ -140,6 +146,43 @@
 #define AUTO_ADD_REPEATER         (1 << 2)  // 0x04 - auto-add Repeater (ADV_TYPE_REPEATER)
 #define AUTO_ADD_ROOM_SERVER      (1 << 3)  // 0x08 - auto-add Room Server (ADV_TYPE_ROOM)
 #define AUTO_ADD_SENSOR           (1 << 4)  // 0x10 - auto-add Sensor (ADV_TYPE_SENSOR)
+
+static bool appendCustomVar(char*& dp, char* end, bool& first, const char* key, const char* value) {
+  size_t key_len = strlen(key);
+  size_t value_len = strlen(value);
+  size_t needed = key_len + value_len + 2 + (first ? 0 : 1);
+
+  if (dp + needed > end) {
+    return false;
+  }
+
+  if (!first) {
+    *dp++ = ',';
+  }
+  memcpy(dp, key, key_len);
+  dp += key_len;
+  *dp++ = ':';
+  memcpy(dp, value, value_len);
+  dp += value_len;
+  *dp = 0;
+  first = false;
+  return true;
+}
+
+static bool isChannelSecretEmpty(const ChannelDetails& channel) {
+  static const uint8_t zeroes[32] = { 0 };
+  return memcmp(channel.channel.secret, zeroes, sizeof(channel.channel.secret)) == 0;
+}
+
+static double calcFastGpsDistanceMeters(int32_t lat1_e6, int32_t lon1_e6, int32_t lat2_e6, int32_t lon2_e6) {
+  double lat1 = ((double)lat1_e6 / 1000000.0) * DEG_TO_RAD;
+  double lat2 = ((double)lat2_e6 / 1000000.0) * DEG_TO_RAD;
+  double dlat = (((double)lat2_e6 - (double)lat1_e6) / 1000000.0) * DEG_TO_RAD;
+  double dlon = (((double)lon2_e6 - (double)lon1_e6) / 1000000.0) * DEG_TO_RAD;
+  double x = dlon * cos((lat1 + lat2) * 0.5);
+  double y = dlat;
+  return sqrt((x * x) + (y * y)) * 6371000.0;
+}
 
 void MyMesh::writeOKFrame() {
   uint8_t buf[1];
@@ -846,6 +889,9 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   next_ack_idx = 0;
   sign_data = NULL;
   dirty_contacts_expiry = 0;
+  _fast_gps_last_sent_valid = false;
+  _fast_gps_last_sent_lat_e6 = 0;
+  _fast_gps_last_sent_lon_e6 = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
   memset(send_scope.key, 0, sizeof(send_scope.key));
 
@@ -860,6 +906,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.tx_power_dbm = LORA_TX_POWER;
   _prefs.gps_enabled = 0;       // GPS disabled by default
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
+  _prefs.fast_gps_channel_idx = FAST_GPS_CHANNEL_DISABLED;
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
 #if defined(USE_SX1262) || defined(USE_SX1268)
 #ifdef SX126X_RX_BOOSTED_GAIN
@@ -906,6 +953,9 @@ void MyMesh::begin(bool has_display) {
   _prefs.tx_power_dbm = constrain(_prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
   _prefs.gps_enabled = constrain(_prefs.gps_enabled, 0, 1);  // Ensure boolean 0 or 1
   _prefs.gps_interval = constrain(_prefs.gps_interval, 0, 86400);  // Max 24 hours
+  if (_prefs.fast_gps_channel_idx == 0 || _prefs.fast_gps_channel_idx >= MAX_GROUP_CHANNELS) {
+    _prefs.fast_gps_channel_idx = FAST_GPS_CHANNEL_DISABLED;
+  }
 
 #ifdef BLE_PIN_CODE // 123456 by default
   if (_prefs.ble_pin == 0) {
@@ -947,6 +997,91 @@ NodePrefs *MyMesh::getNodePrefs() {
 }
 uint32_t MyMesh::getBLEPin() {
   return _active_ble_pin;
+}
+
+bool MyMesh::hasGpsCustomVars() const {
+#if ENV_INCLUDE_GPS == 1
+  for (int i = 0; i < sensors.getNumSettings(); i++) {
+    const char *name = sensors.getSettingName(i);
+    if (name != NULL && strcmp(name, "gps") == 0) {
+      return true;
+    }
+  }
+#endif
+  return false;
+}
+
+bool MyMesh::resolveFastGpsChannel(ChannelDetails& channel) {
+  if (_prefs.fast_gps_channel_idx == FAST_GPS_CHANNEL_DISABLED ||
+      _prefs.fast_gps_channel_idx == 0 ||
+      _prefs.fast_gps_channel_idx >= MAX_GROUP_CHANNELS) {
+    return false;
+  }
+  if (!getChannel(_prefs.fast_gps_channel_idx, channel)) {
+    return false;
+  }
+  return !isChannelSecretEmpty(channel);
+}
+
+void MyMesh::resetFastGpsShareState() {
+  _fast_gps_last_sent_valid = false;
+  _fast_gps_last_sent_lat_e6 = 0;
+  _fast_gps_last_sent_lon_e6 = 0;
+}
+
+void MyMesh::maybeSendFastGpsUpdate() {
+#if ENV_INCLUDE_GPS == 1
+  if (_prefs.gps_enabled == 0 || !hasGpsCustomVars()) {
+    resetFastGpsShareState();
+    return;
+  }
+
+  ChannelDetails channel;
+  if (!resolveFastGpsChannel(channel)) {
+    resetFastGpsShareState();
+    return;
+  }
+
+  LocationProvider *location = sensors.getLocationProvider();
+  if (location == NULL || !location->isValid()) {
+    resetFastGpsShareState();
+    return;
+  }
+
+  int32_t lat_e6 = (int32_t)location->getLatitude();
+  int32_t lon_e6 = (int32_t)location->getLongitude();
+  bool should_send = !_fast_gps_last_sent_valid;
+  if (!should_send) {
+    double distance_m = calcFastGpsDistanceMeters(
+        _fast_gps_last_sent_lat_e6,
+        _fast_gps_last_sent_lon_e6,
+        lat_e6,
+        lon_e6);
+    should_send = distance_m >= FAST_GPS_MIN_MOVEMENT_METERS;
+  }
+  if (!should_send) {
+    return;
+  }
+
+  uint8_t payload[FAST_GPS_PAYLOAD_LEN];
+  payload[0] = FAST_GPS_MAGIC;
+  memcpy(&payload[1], self_id.pub_key, 6);
+  memcpy(&payload[7], &lat_e6, 4);
+  memcpy(&payload[11], &lon_e6, 4);
+
+  uint32_t timestamp = (uint32_t)location->getTimestamp();
+  if (timestamp == 0) {
+    timestamp = getRTCClock()->getCurrentTime();
+  }
+  memcpy(&payload[15], &timestamp, 4);
+
+  uint8_t path[1] = { 0 };
+  if (sendGroupData(channel.channel, path, OUT_PATH_UNKNOWN, DATA_TYPE_DEV, payload, sizeof(payload))) {
+    _fast_gps_last_sent_valid = true;
+    _fast_gps_last_sent_lat_e6 = lat_e6;
+    _fast_gps_last_sent_lon_e6 = lon_e6;
+  }
+#endif
 }
 
 struct FreqRange {
@@ -1661,6 +1796,9 @@ void MyMesh::handleCmdFrame(size_t len) {
     memcpy(channel.channel.secret, &cmd_frame[2 + 32], 16); // NOTE: only 128-bit supported
     if (setChannel(channel_idx, channel)) {
       saveChannels();
+      if (channel_idx == _prefs.fast_gps_channel_idx) {
+        resetFastGpsShareState();
+      }
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
@@ -1740,16 +1878,35 @@ void MyMesh::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_GET_CUSTOM_VARS) {
     out_frame[0] = RESP_CODE_CUSTOM_VARS;
     char *dp = (char *)&out_frame[1];
-    for (int i = 0; i < sensors.getNumSettings() && dp - (char *)&out_frame[1] < 140; i++) {
-      if (i > 0) {
-        *dp++ = ',';
+    char *end = (char *)(out_frame + sizeof(out_frame));
+    bool first = true;
+    bool gps_supported = hasGpsCustomVars();
+
+    for (int i = 0; i < sensors.getNumSettings(); i++) {
+      const char *name = sensors.getSettingName(i);
+      const char *value = sensors.getSettingValue(i);
+      if (name == NULL || value == NULL) {
+        continue;
       }
-      strcpy(dp, sensors.getSettingName(i));
-      dp = strchr(dp, 0);
-      *dp++ = ':';
-      strcpy(dp, sensors.getSettingValue(i));
-      dp = strchr(dp, 0);
+      if (!appendCustomVar(dp, end, first, name, value)) {
+        break;
+      }
     }
+
+#if ENV_INCLUDE_GPS == 1
+    if (gps_supported) {
+      char gps_interval[12];
+      snprintf(gps_interval, sizeof(gps_interval), "%u", _prefs.gps_interval);
+      appendCustomVar(dp, end, first, "gps_interval", gps_interval);
+
+      char fast_gps_channel[6];
+      int configured_channel = _prefs.fast_gps_channel_idx == FAST_GPS_CHANNEL_DISABLED
+                                   ? -1
+                                   : (int)_prefs.fast_gps_channel_idx;
+      snprintf(fast_gps_channel, sizeof(fast_gps_channel), "%d", configured_channel);
+      appendCustomVar(dp, end, first, "fast_gps_channel", fast_gps_channel);
+    }
+#endif
     _serial->writeFrame(out_frame, dp - (char *)out_frame);
   } else if (cmd_frame[0] == CMD_SET_CUSTOM_VAR && len >= 4) {
     cmd_frame[len] = 0;
@@ -1757,12 +1914,38 @@ void MyMesh::handleCmdFrame(size_t len) {
     char *np = strchr(sp, ':'); // look for separator char
     if (np) {
       *np++ = 0; // modify 'cmd_frame', replace ':' with null
-      bool success = sensors.setSettingValue(sp, np);
+      bool gps_supported = hasGpsCustomVars();
+      bool is_gps_var = strcmp(sp, "gps") == 0 ||
+                        strcmp(sp, "gps_interval") == 0 ||
+                        strcmp(sp, "fast_gps_channel") == 0;
+      if (is_gps_var && !gps_supported) {
+        writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+        return;
+      }
+
+      bool success = false;
+      if (strcmp(sp, "fast_gps_channel") == 0) {
+        int channel_idx = atoi(np);
+        if (channel_idx == -1 || channel_idx == FAST_GPS_CHANNEL_DISABLED) {
+          _prefs.fast_gps_channel_idx = FAST_GPS_CHANNEL_DISABLED;
+          resetFastGpsShareState();
+          savePrefs();
+          success = true;
+        } else if (channel_idx > 0 && channel_idx < MAX_GROUP_CHANNELS) {
+          _prefs.fast_gps_channel_idx = channel_idx;
+          resetFastGpsShareState();
+          savePrefs();
+          success = true;
+        }
+      } else {
+        success = sensors.setSettingValue(sp, np);
+      }
       if (success) {
         #if ENV_INCLUDE_GPS == 1
         // Update node preferences for GPS settings
         if (strcmp(sp, "gps") == 0) {
           _prefs.gps_enabled = (np[0] == '1') ? 1 : 0;
+          resetFastGpsShareState();
           savePrefs();
         } else if (strcmp(sp, "gps_interval") == 0) {
           uint32_t interval_seconds = atoi(np);
@@ -2112,6 +2295,8 @@ void MyMesh::checkSerialInterface() {
 
 void MyMesh::loop() {
   BaseChatMesh::loop();
+
+  maybeSendFastGpsUpdate();
 
   if (_cli_rescue) {
     checkCLIRescueCmd();

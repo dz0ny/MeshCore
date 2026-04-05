@@ -194,6 +194,10 @@ private:
   void checkCLIRescueCmd();
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
+  bool hasGpsCustomVars() const;
+  bool resolveFastGpsChannel(ChannelDetails& channel);
+  void resetFastGpsShareState();
+  void maybeSendFastGpsUpdate();
 
   // helpers, short-cuts
   void saveChannels() { _store->saveChannels(this); }
@@ -219,6 +223,9 @@ private:
   uint8_t *sign_data;
   uint32_t sign_data_len;
   unsigned long dirty_contacts_expiry;
+  bool _fast_gps_last_sent_valid;
+  int32_t _fast_gps_last_sent_lat_e6;
+  int32_t _fast_gps_last_sent_lon_e6;
 
   TransportKey send_scope;
 
