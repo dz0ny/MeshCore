@@ -137,6 +137,8 @@
 #define FAST_GPS_PAYLOAD_LEN            19
 #define FAST_GPS_MAGIC                  0x47
 #define FAST_GPS_MIN_MOVEMENT_METERS    10.0
+#define FAST_GPS_STATIONARY_BASE_INTERVAL_MS  (64UL * 1000UL)
+#define FAST_GPS_STATIONARY_MAX_INTERVAL_MS   (1024UL * 1000UL)
 
 // Auto-add config bitmask
 // Bit 0: If set, overwrite oldest non-favourite contact when contacts file is full
@@ -892,6 +894,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _fast_gps_last_sent_valid = false;
   _fast_gps_last_sent_lat_e6 = 0;
   _fast_gps_last_sent_lon_e6 = 0;
+  _fast_gps_next_stationary_send_at = 0;
+  _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
   memset(advert_paths, 0, sizeof(advert_paths));
   memset(send_scope.key, 0, sizeof(send_scope.key));
 
@@ -1027,6 +1031,8 @@ void MyMesh::resetFastGpsShareState() {
   _fast_gps_last_sent_valid = false;
   _fast_gps_last_sent_lat_e6 = 0;
   _fast_gps_last_sent_lon_e6 = 0;
+  _fast_gps_next_stationary_send_at = 0;
+  _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
 }
 
 void MyMesh::maybeSendFastGpsUpdate() {
@@ -1051,13 +1057,20 @@ void MyMesh::maybeSendFastGpsUpdate() {
   int32_t lat_e6 = (int32_t)location->getLatitude();
   int32_t lon_e6 = (int32_t)location->getLongitude();
   bool should_send = !_fast_gps_last_sent_valid;
+  bool reset_stationary_backoff = should_send;
   if (!should_send) {
     double distance_m = calcFastGpsDistanceMeters(
         _fast_gps_last_sent_lat_e6,
         _fast_gps_last_sent_lon_e6,
         lat_e6,
         lon_e6);
-    should_send = distance_m >= FAST_GPS_MIN_MOVEMENT_METERS;
+    if (distance_m >= FAST_GPS_MIN_MOVEMENT_METERS) {
+      should_send = true;
+      reset_stationary_backoff = true;
+    } else if (_fast_gps_next_stationary_send_at != 0 &&
+               millisHasNowPassed(_fast_gps_next_stationary_send_at)) {
+      should_send = true;
+    }
   }
   if (!should_send) {
     return;
@@ -1080,6 +1093,15 @@ void MyMesh::maybeSendFastGpsUpdate() {
     _fast_gps_last_sent_valid = true;
     _fast_gps_last_sent_lat_e6 = lat_e6;
     _fast_gps_last_sent_lon_e6 = lon_e6;
+    if (reset_stationary_backoff) {
+      _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
+    } else if (_fast_gps_stationary_interval_ms < FAST_GPS_STATIONARY_MAX_INTERVAL_MS) {
+      _fast_gps_stationary_interval_ms *= 2;
+      if (_fast_gps_stationary_interval_ms > FAST_GPS_STATIONARY_MAX_INTERVAL_MS) {
+        _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_MAX_INTERVAL_MS;
+      }
+    }
+    _fast_gps_next_stationary_send_at = futureMillis((int)_fast_gps_stationary_interval_ms);
   }
 #endif
 }
