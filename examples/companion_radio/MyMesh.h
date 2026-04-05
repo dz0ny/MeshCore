@@ -195,6 +195,7 @@ private:
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
   bool hasGpsCustomVars() const;
+  void updateGpsStatusCache();
   bool resolveFastGpsChannel(ChannelDetails& channel);
   void resetFastGpsShareState();
   void maybeSendFastGpsUpdate();
@@ -228,6 +229,10 @@ private:
   int32_t _fast_gps_last_sent_lon_e6;
   unsigned long _fast_gps_next_stationary_send_at;
   unsigned long _fast_gps_stationary_interval_ms;
+  bool _gps_last_fix_valid;
+  int32_t _gps_last_fix_lat_e6;
+  int32_t _gps_last_fix_lon_e6;
+  uint32_t _gps_last_fix_timestamp;
 
   TransportKey send_scope;
 

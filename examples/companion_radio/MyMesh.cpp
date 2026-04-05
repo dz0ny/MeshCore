@@ -896,6 +896,10 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _fast_gps_last_sent_lon_e6 = 0;
   _fast_gps_next_stationary_send_at = 0;
   _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
+  _gps_last_fix_valid = false;
+  _gps_last_fix_lat_e6 = 0;
+  _gps_last_fix_lon_e6 = 0;
+  _gps_last_fix_timestamp = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
   memset(send_scope.key, 0, sizeof(send_scope.key));
 
@@ -1033,6 +1037,29 @@ void MyMesh::resetFastGpsShareState() {
   _fast_gps_last_sent_lon_e6 = 0;
   _fast_gps_next_stationary_send_at = 0;
   _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
+}
+
+void MyMesh::updateGpsStatusCache() {
+#if ENV_INCLUDE_GPS == 1
+  if (!hasGpsCustomVars()) {
+    return;
+  }
+
+  LocationProvider *location = sensors.getLocationProvider();
+  if (location == NULL || !location->isValid()) {
+    return;
+  }
+
+  _gps_last_fix_valid = true;
+  _gps_last_fix_lat_e6 = (int32_t)location->getLatitude();
+  _gps_last_fix_lon_e6 = (int32_t)location->getLongitude();
+
+  uint32_t timestamp = (uint32_t)location->getTimestamp();
+  if (timestamp == 0) {
+    timestamp = getRTCClock()->getCurrentTime();
+  }
+  _gps_last_fix_timestamp = timestamp;
+#endif
 }
 
 void MyMesh::maybeSendFastGpsUpdate() {
@@ -1917,6 +1944,8 @@ void MyMesh::handleCmdFrame(size_t len) {
 
 #if ENV_INCLUDE_GPS == 1
     if (gps_supported) {
+      updateGpsStatusCache();
+
       char gps_interval[12];
       snprintf(gps_interval, sizeof(gps_interval), "%u", _prefs.gps_interval);
       appendCustomVar(dp, end, first, "gps_interval", gps_interval);
@@ -1927,6 +1956,52 @@ void MyMesh::handleCmdFrame(size_t len) {
                                    : (int)_prefs.fast_gps_channel_idx;
       snprintf(fast_gps_channel, sizeof(fast_gps_channel), "%d", configured_channel);
       appendCustomVar(dp, end, first, "fast_gps_channel", fast_gps_channel);
+
+      LocationProvider *location = sensors.getLocationProvider();
+      bool gps_fix = location != NULL && location->isValid();
+      long gps_sats = location != NULL ? location->satellitesCount() : 0;
+      int32_t gps_lat_e6 = 0;
+      int32_t gps_lon_e6 = 0;
+      bool has_coords = false;
+
+      if (gps_fix) {
+        gps_lat_e6 = (int32_t)location->getLatitude();
+        gps_lon_e6 = (int32_t)location->getLongitude();
+        has_coords = true;
+      } else if (_gps_last_fix_valid) {
+        gps_lat_e6 = _gps_last_fix_lat_e6;
+        gps_lon_e6 = _gps_last_fix_lon_e6;
+        has_coords = true;
+      }
+
+      char gps_fix_str[2];
+      snprintf(gps_fix_str, sizeof(gps_fix_str), "%d", gps_fix ? 1 : 0);
+      appendCustomVar(dp, end, first, "gps_fix", gps_fix_str);
+
+      char gps_sats_str[12];
+      snprintf(gps_sats_str, sizeof(gps_sats_str), "%ld", gps_sats);
+      appendCustomVar(dp, end, first, "gps_sats", gps_sats_str);
+
+      if (has_coords) {
+        char gps_lat_str[16];
+        snprintf(gps_lat_str, sizeof(gps_lat_str), "%ld", (long)gps_lat_e6);
+        appendCustomVar(dp, end, first, "gps_lat_e6", gps_lat_str);
+
+        char gps_lon_str[16];
+        snprintf(gps_lon_str, sizeof(gps_lon_str), "%ld", (long)gps_lon_e6);
+        appendCustomVar(dp, end, first, "gps_lon_e6", gps_lon_str);
+      }
+
+      if (_gps_last_fix_valid) {
+        uint32_t now = getRTCClock()->getCurrentTime();
+        uint32_t gps_last_fix_age = 0;
+        if (_gps_last_fix_timestamp != 0 && now >= _gps_last_fix_timestamp) {
+          gps_last_fix_age = now - _gps_last_fix_timestamp;
+        }
+        char gps_last_fix_age_str[12];
+        snprintf(gps_last_fix_age_str, sizeof(gps_last_fix_age_str), "%u", gps_last_fix_age);
+        appendCustomVar(dp, end, first, "gps_last_fix_age_s", gps_last_fix_age_str);
+      }
     }
 #endif
     _serial->writeFrame(out_frame, dp - (char *)out_frame);
@@ -2318,6 +2393,7 @@ void MyMesh::checkSerialInterface() {
 void MyMesh::loop() {
   BaseChatMesh::loop();
 
+  updateGpsStatusCache();
   maybeSendFastGpsUpdate();
 
   if (_cli_rescue) {
