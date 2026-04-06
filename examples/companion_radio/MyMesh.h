@@ -229,6 +229,7 @@ private:
   int32_t _fast_gps_last_sent_lon_e6;
   unsigned long _fast_gps_next_stationary_send_at;
   unsigned long _fast_gps_stationary_interval_ms;
+  unsigned long _fast_gps_send_holdoff_until;
   bool _gps_last_fix_valid;
   int32_t _gps_last_fix_lat_e6;
   int32_t _gps_last_fix_lon_e6;

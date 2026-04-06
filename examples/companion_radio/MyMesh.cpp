@@ -139,6 +139,7 @@
 #define FAST_GPS_MIN_MOVEMENT_METERS    10.0
 #define FAST_GPS_STATIONARY_BASE_INTERVAL_MS  (64UL * 1000UL)
 #define FAST_GPS_STATIONARY_MAX_INTERVAL_MS   (1024UL * 1000UL)
+#define FAST_GPS_CHANNEL_RX_HOLDOFF_MS        5000UL
 
 // Auto-add config bitmask
 // Bit 0: If set, overwrite oldest non-favourite contact when contacts file is full
@@ -616,6 +617,13 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 
 void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
                                const uint8_t *data, size_t data_len) {
+  uint8_t channel_idx = findChannelIdx(channel);
+  if (_prefs.fast_gps_channel_idx != FAST_GPS_CHANNEL_DISABLED &&
+      _prefs.fast_gps_channel_idx < MAX_GROUP_CHANNELS &&
+      channel_idx == _prefs.fast_gps_channel_idx) {
+    _fast_gps_send_holdoff_until = futureMillis(FAST_GPS_CHANNEL_RX_HOLDOFF_MS);
+  }
+
   if (data_len > MAX_CHANNEL_DATA_LENGTH) {
     MESH_DEBUG_PRINTLN("onChannelDataRecv: dropping payload_len=%d exceeds frame limit=%d",
                        (uint32_t)data_len, (uint32_t)MAX_CHANNEL_DATA_LENGTH);
@@ -628,7 +636,6 @@ void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *
   out_frame[i++] = 0; // reserved1
   out_frame[i++] = 0; // reserved2
 
-  uint8_t channel_idx = findChannelIdx(channel);
   out_frame[i++] = channel_idx;
   out_frame[i++] = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
   out_frame[i++] = (uint8_t)(data_type & 0xFF);
@@ -896,6 +903,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _fast_gps_last_sent_lon_e6 = 0;
   _fast_gps_next_stationary_send_at = 0;
   _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
+  _fast_gps_send_holdoff_until = 0;
   _gps_last_fix_valid = false;
   _gps_last_fix_lat_e6 = 0;
   _gps_last_fix_lon_e6 = 0;
@@ -1037,6 +1045,7 @@ void MyMesh::resetFastGpsShareState() {
   _fast_gps_last_sent_lon_e6 = 0;
   _fast_gps_next_stationary_send_at = 0;
   _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
+  _fast_gps_send_holdoff_until = 0;
 }
 
 void MyMesh::updateGpsStatusCache() {
@@ -1091,7 +1100,7 @@ void MyMesh::maybeSendFastGpsUpdate() {
         _fast_gps_last_sent_lon_e6,
         lat_e6,
         lon_e6);
-    if (distance_m >= FAST_GPS_MIN_MOVEMENT_METERS) {
+    if (distance_m > FAST_GPS_MIN_MOVEMENT_METERS) {
       should_send = true;
       reset_stationary_backoff = true;
     } else if (_fast_gps_next_stationary_send_at != 0 &&
@@ -1101,6 +1110,14 @@ void MyMesh::maybeSendFastGpsUpdate() {
   }
   if (!should_send) {
     return;
+  }
+  if (_fast_gps_send_holdoff_until != 0 &&
+      !millisHasNowPassed(_fast_gps_send_holdoff_until)) {
+    return;
+  }
+  if (_fast_gps_send_holdoff_until != 0 &&
+      millisHasNowPassed(_fast_gps_send_holdoff_until)) {
+    _fast_gps_send_holdoff_until = 0;
   }
 
   uint8_t payload[FAST_GPS_PAYLOAD_LEN];
