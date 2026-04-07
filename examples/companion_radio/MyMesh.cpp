@@ -137,9 +137,15 @@
 #define FAST_GPS_PAYLOAD_LEN            19
 #define FAST_GPS_MAGIC                  0x47
 #define FAST_GPS_MIN_MOVEMENT_METERS    10.0
-#define FAST_GPS_STATIONARY_BASE_INTERVAL_MS  (64UL * 1000UL)
+#define FAST_GPS_STATIONARY_BASE_INTERVAL_MS  (60UL * 1000UL)
 #define FAST_GPS_STATIONARY_MAX_INTERVAL_MS   (1024UL * 1000UL)
 #define FAST_GPS_CHANNEL_RX_HOLDOFF_MS        5000UL
+#define FAST_GPS_SPEED_IDLE_MAX_MPS           0.75
+#define FAST_GPS_SPEED_WALK_MAX_MPS           1.8
+#define FAST_GPS_SPEED_FAST_MAX_MPS           4.0
+#define FAST_GPS_WALK_INTERVAL_MS             (30UL * 1000UL)
+#define FAST_GPS_FAST_INTERVAL_MS             (15UL * 1000UL)
+#define FAST_GPS_VERY_FAST_INTERVAL_MS        (5UL * 1000UL)
 
 // Auto-add config bitmask
 // Bit 0: If set, overwrite oldest non-favourite contact when contacts file is full
@@ -185,6 +191,19 @@ static double calcFastGpsDistanceMeters(int32_t lat1_e6, int32_t lon1_e6, int32_
   double x = dlon * cos((lat1 + lat2) * 0.5);
   double y = dlat;
   return sqrt((x * x) + (y * y)) * 6371000.0;
+}
+
+static unsigned long calcFastGpsMovingIntervalMs(double speed_mps) {
+  if (speed_mps < FAST_GPS_SPEED_IDLE_MAX_MPS) {
+    return FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
+  }
+  if (speed_mps < FAST_GPS_SPEED_WALK_MAX_MPS) {
+    return FAST_GPS_WALK_INTERVAL_MS;
+  }
+  if (speed_mps < FAST_GPS_SPEED_FAST_MAX_MPS) {
+    return FAST_GPS_FAST_INTERVAL_MS;
+  }
+  return FAST_GPS_VERY_FAST_INTERVAL_MS;
 }
 
 void MyMesh::writeOKFrame() {
@@ -901,6 +920,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _fast_gps_last_sent_valid = false;
   _fast_gps_last_sent_lat_e6 = 0;
   _fast_gps_last_sent_lon_e6 = 0;
+  _fast_gps_last_sent_at_ms = 0;
   _fast_gps_next_stationary_send_at = 0;
   _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
   _fast_gps_send_holdoff_until = 0;
@@ -1043,6 +1063,7 @@ void MyMesh::resetFastGpsShareState() {
   _fast_gps_last_sent_valid = false;
   _fast_gps_last_sent_lat_e6 = 0;
   _fast_gps_last_sent_lon_e6 = 0;
+  _fast_gps_last_sent_at_ms = 0;
   _fast_gps_next_stationary_send_at = 0;
   _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
   _fast_gps_send_holdoff_until = 0;
@@ -1090,6 +1111,7 @@ void MyMesh::maybeSendFastGpsUpdate() {
     return;
   }
 
+  unsigned long now_ms = futureMillis(0);
   int32_t lat_e6 = (int32_t)location->getLatitude();
   int32_t lon_e6 = (int32_t)location->getLongitude();
   bool should_send = !_fast_gps_last_sent_valid;
@@ -1101,8 +1123,15 @@ void MyMesh::maybeSendFastGpsUpdate() {
         lat_e6,
         lon_e6);
     if (distance_m > FAST_GPS_MIN_MOVEMENT_METERS) {
-      should_send = true;
-      reset_stationary_backoff = true;
+      if (_fast_gps_last_sent_at_ms != 0 && now_ms > _fast_gps_last_sent_at_ms) {
+        unsigned long elapsed_ms = now_ms - _fast_gps_last_sent_at_ms;
+        double speed_mps = (distance_m * 1000.0) / (double)elapsed_ms;
+        unsigned long movement_interval_ms = calcFastGpsMovingIntervalMs(speed_mps);
+        should_send = elapsed_ms >= movement_interval_ms;
+      }
+      if (should_send) {
+        reset_stationary_backoff = true;
+      }
     } else if (_fast_gps_next_stationary_send_at != 0 &&
                millisHasNowPassed(_fast_gps_next_stationary_send_at)) {
       should_send = true;
@@ -1137,6 +1166,7 @@ void MyMesh::maybeSendFastGpsUpdate() {
     _fast_gps_last_sent_valid = true;
     _fast_gps_last_sent_lat_e6 = lat_e6;
     _fast_gps_last_sent_lon_e6 = lon_e6;
+    _fast_gps_last_sent_at_ms = now_ms;
     if (reset_stationary_backoff) {
       _fast_gps_stationary_interval_ms = FAST_GPS_STATIONARY_BASE_INTERVAL_MS;
     } else if (_fast_gps_stationary_interval_ms < FAST_GPS_STATIONARY_MAX_INTERVAL_MS) {
