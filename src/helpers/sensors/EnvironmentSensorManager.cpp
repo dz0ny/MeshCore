@@ -1,5 +1,16 @@
 #include "EnvironmentSensorManager.h"
 
+#define FIXED_GPS_INTERVAL_SECONDS 5UL
+
+static uint32_t parseUint32Value(const char* sp) {
+  uint32_t n = 0;
+  while (*sp && *sp >= '0' && *sp <= '9') {
+    n *= 10;
+    n += (*sp++ - '0');
+  }
+  return n;
+}
+
 #if ENV_PIN_SDA && ENV_PIN_SCL
 #define TELEM_WIRE &Wire1  // Use Wire1 as the I2C bus for Environment Sensors
 #else
@@ -537,7 +548,7 @@ bool EnvironmentSensorManager::querySensors(uint8_t requester_permissions, Cayen
 int EnvironmentSensorManager::getNumSettings() const {
   int settings = 0;
   #if ENV_INCLUDE_GPS
-    if (gps_detected) settings++;  // only show GPS setting if GPS is detected
+    if (gps_detected) settings += 2;  // GPS enable + GPS interval
   #endif
   return settings;
 }
@@ -547,6 +558,9 @@ const char* EnvironmentSensorManager::getSettingName(int i) const {
   #if ENV_INCLUDE_GPS
     if (gps_detected && i == settings++) {
       return "gps";
+    }
+    if (gps_detected && i == settings++) {
+      return "gps_interval";
     }
   #endif
   // convenient way to add params (needed for some tests)
@@ -559,6 +573,11 @@ const char* EnvironmentSensorManager::getSettingValue(int i) const {
   #if ENV_INCLUDE_GPS
     if (gps_detected && i == settings++) {
       return gps_active ? "1" : "0";
+    }
+    if (gps_detected && i == settings++) {
+      static char gps_interval[12];
+      snprintf(gps_interval, sizeof(gps_interval), "%lu", (unsigned long)gps_update_interval_sec);
+      return gps_interval;
     }
   #endif
   // convenient way to add params ...
@@ -577,12 +596,8 @@ bool EnvironmentSensorManager::setSettingValue(const char* name, const char* val
     return true;
   }
   if (strcmp(name, "gps_interval") == 0) {
-    uint32_t interval_seconds = atoi(value);
-    if (interval_seconds > 0) {
-      gps_update_interval_sec = interval_seconds;
-    } else {
-      gps_update_interval_sec = 1;  // Default to 1 second if 0
-    }
+    (void)parseUint32Value(value);
+    gps_update_interval_sec = FIXED_GPS_INTERVAL_SECONDS;
     return true;
   }
   #endif
@@ -754,6 +769,9 @@ void EnvironmentSensorManager::loop() {
   #if ENV_INCLUDE_GPS
   if (gps_active) {
     _location->loop();
+  }
+  if (gps_update_interval_sec == 0) {
+    return;
   }
   if (millis() > next_gps_update) {
 

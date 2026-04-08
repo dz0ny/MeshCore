@@ -3,6 +3,7 @@
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 #include <helpers/TxtDataHelpers.h>
+#include <limits.h>
 #include <math.h>
 
 #define CMD_APP_START                 1
@@ -136,6 +137,7 @@
 #define FAST_GPS_CHANNEL_DISABLED       0xFF
 #define FAST_GPS_PAYLOAD_LEN            19
 #define FAST_GPS_MAGIC                  0x47
+#define FIXED_GPS_INTERVAL_SECONDS      5UL
 #define FAST_GPS_MIN_MOVEMENT_METERS    10.0
 #define FAST_GPS_STATIONARY_BASE_INTERVAL_MS  (60UL * 1000UL)
 #define FAST_GPS_STATIONARY_MAX_INTERVAL_MS   (1024UL * 1000UL)
@@ -176,6 +178,35 @@ static bool appendCustomVar(char*& dp, char* end, bool& first, const char* key, 
   *dp = 0;
   first = false;
   return true;
+}
+
+static uint32_t parseUint32Value(const char* sp) {
+  uint32_t n = 0;
+  while (*sp && *sp >= '0' && *sp <= '9') {
+    n *= 10;
+    n += (*sp++ - '0');
+  }
+  return n;
+}
+
+static int parseIntValue(const char* sp) {
+  bool negative = false;
+  if (*sp == '-') {
+    negative = true;
+    sp++;
+  }
+
+  uint32_t n = parseUint32Value(sp);
+  if (negative) {
+    if (n >= (uint32_t)INT_MAX + 1U) {
+      return INT_MIN;
+    }
+    return -(int)n;
+  }
+  if (n > (uint32_t)INT_MAX) {
+    return INT_MAX;
+  }
+  return (int)n;
 }
 
 static bool isChannelSecretEmpty(const ChannelDetails& channel) {
@@ -941,7 +972,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.cr = LORA_CR;
   _prefs.tx_power_dbm = LORA_TX_POWER;
   _prefs.gps_enabled = 0;       // GPS disabled by default
-  _prefs.gps_interval = 0;      // No automatic GPS updates by default
+  _prefs.gps_interval = FIXED_GPS_INTERVAL_SECONDS;
   _prefs.fast_gps_channel_idx = FAST_GPS_CHANNEL_DISABLED;
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
 #if defined(USE_SX1262) || defined(USE_SX1268)
@@ -988,7 +1019,7 @@ void MyMesh::begin(bool has_display) {
   _prefs.cr = constrain(_prefs.cr, 5, 8);
   _prefs.tx_power_dbm = constrain(_prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
   _prefs.gps_enabled = constrain(_prefs.gps_enabled, 0, 1);  // Ensure boolean 0 or 1
-  _prefs.gps_interval = constrain(_prefs.gps_interval, 0, 86400);  // Max 24 hours
+  _prefs.gps_interval = FIXED_GPS_INTERVAL_SECONDS;
   if (_prefs.fast_gps_channel_idx == 0 || _prefs.fast_gps_channel_idx >= MAX_GROUP_CHANNELS) {
     _prefs.fast_gps_channel_idx = FAST_GPS_CHANNEL_DISABLED;
   }
@@ -1999,10 +2030,6 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (gps_supported) {
       updateGpsStatusCache();
 
-      char gps_interval[12];
-      snprintf(gps_interval, sizeof(gps_interval), "%u", _prefs.gps_interval);
-      appendCustomVar(dp, end, first, "gps_interval", gps_interval);
-
       char fast_gps_channel[6];
       int configured_channel = _prefs.fast_gps_channel_idx == FAST_GPS_CHANNEL_DISABLED
                                    ? -1
@@ -2094,7 +2121,7 @@ void MyMesh::handleCmdFrame(size_t len) {
           success = true;
         }
       } else if (strcmp(sp, "fast_gps_channel") == 0) {
-        int channel_idx = atoi(np);
+        int channel_idx = parseIntValue(np);
         if (channel_idx == -1 || channel_idx == FAST_GPS_CHANNEL_DISABLED) {
           _prefs.fast_gps_channel_idx = FAST_GPS_CHANNEL_DISABLED;
           resetFastGpsShareState();
@@ -2117,8 +2144,7 @@ void MyMesh::handleCmdFrame(size_t len) {
           resetFastGpsShareState();
           savePrefs();
         } else if (strcmp(sp, "gps_interval") == 0) {
-          uint32_t interval_seconds = atoi(np);
-          _prefs.gps_interval = constrain(interval_seconds, 0, 86400);
+          _prefs.gps_interval = FIXED_GPS_INTERVAL_SECONDS;
           savePrefs();
         }
         #endif
@@ -2283,7 +2309,7 @@ void MyMesh::checkCLIRescueCmd() {
     if (memcmp(cli_command, "set ", 4) == 0) {
       const char* config = &cli_command[4];
       if (memcmp(config, "pin ", 4) == 0) {
-        _prefs.ble_pin = atoi(&config[4]);
+        _prefs.ble_pin = parseUint32Value(&config[4]);
         savePrefs();
         Serial.printf("  > pin is now %06d\n", _prefs.ble_pin);
       } else {
